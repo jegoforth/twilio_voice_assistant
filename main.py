@@ -478,7 +478,7 @@ async def admin_ui():
     <!DOCTYPE html>
     <html>
     <head>
-        <title>Twilio Voice Assistant - PIN Management</title>
+        <title>Twilio Voice Assistant - Admin</title>
         <style>
             * { margin: 0; padding: 0; box-sizing: border-box; }
             body {
@@ -599,7 +599,7 @@ async def admin_ui():
     </head>
     <body>
         <div class="container">
-            <h1>🔐 PIN Management</h1>
+            <h1>Twilio Voice Assistant</h1>
 
             <div class="form-section">
                 <h2 style="font-size: 18px; margin-bottom: 15px; color: #333;">Assistant Settings</h2>

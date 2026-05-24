@@ -1154,7 +1154,8 @@ async def incoming_call(
 ):
     return twiml_response("""
     <Response>
-        <Say>Please say your four digit PIN after the beep.</Say>
+        <Say>Please say your four digit PIN slowly, one digit at a time, after the beep.</Say>
+        <Pause length="1"/>
         <Record
             maxLength="5"
             timeout="4"

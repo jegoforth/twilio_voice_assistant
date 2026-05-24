@@ -23,7 +23,7 @@
   "schema": {
     "twilio_account_sid": "str",
     "twilio_auth_token": "password",
-    "public_base_url": "url",
+    "public_base_url": "str",
     "debug": "bool?"
   },
   "homeassistant_api": true,

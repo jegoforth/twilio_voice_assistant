@@ -26,7 +26,10 @@ except Exception as e:
 # Export environment variables
 os.environ['TWILIO_ACCOUNT_SID'] = str(config.get('twilio_account_sid', '')).strip()
 os.environ['TWILIO_AUTH_TOKEN'] = str(config.get('twilio_auth_token', '')).strip()
-os.environ['PUBLIC_BASE_URL'] = str(config.get('public_base_url', '')).strip().rstrip('/')
+public_base_url = str(config.get('public_base_url', '')).strip().rstrip('/')
+if public_base_url and not public_base_url.startswith(('http://', 'https://')):
+    public_base_url = f'https://{public_base_url}'
+os.environ['PUBLIC_BASE_URL'] = public_base_url
 
 # Handle pin_map - could be dict or JSON string
 pin_map = config.get('pin_map', {})

@@ -12,7 +12,6 @@ import json
 import traceback
 from contextlib import asynccontextmanager
 from urllib.parse import quote
-from elevenlabs import ElevenLabs
 
 app = FastAPI()
 app.mount("/audio", StaticFiles(directory="/share"), name="audio")
@@ -21,8 +20,6 @@ app.mount("/audio", StaticFiles(directory="/share"), name="audio")
 model = whisper.load_model("tiny")
 
 # Load configuration from environment
-ELEVEN_API_KEY = os.getenv("ELEVEN_API_KEY", "")
-ELEVEN_VOICE_ID = os.getenv("ELEVEN_VOICE_ID", "")
 TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID")
 TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN")
 SUPERVISOR_TOKEN = os.getenv("SUPERVISOR_TOKEN")
@@ -33,8 +30,6 @@ DEBUG = os.getenv("DEBUG", "false").lower() == "true"
 required_vars = {
     "TWILIO_ACCOUNT_SID": TWILIO_ACCOUNT_SID,
     "TWILIO_AUTH_TOKEN": TWILIO_AUTH_TOKEN,
-    "ELEVEN_API_KEY": ELEVEN_API_KEY,
-    "ELEVEN_VOICE_ID": ELEVEN_VOICE_ID,
     "PUBLIC_BASE_URL": PUBLIC_BASE_URL,
 }
 
@@ -45,15 +40,21 @@ if missing_vars:
         "Please configure the addon with your API credentials."
     )
 
-tts_client = ElevenLabs(api_key=ELEVEN_API_KEY)
-
 PIN_MAP_FILE = "/share/pin_map.json"
+SETTINGS_FILE = "/share/twilio_voice_assistant_settings.json"
 
 
 class PinRequest(BaseModel):
     pin: str
     user_id: str
     user_name: str | None = None
+
+
+class SettingsRequest(BaseModel):
+    conversation_agent_id: str | None = None
+    tts_engine_id: str | None = None
+    tts_language: str | None = None
+    tts_voice: str | None = None
 
 
 def load_pin_map():
@@ -65,6 +66,37 @@ def load_pin_map():
     except Exception as e:
         print(f"WARNING: Could not load PIN map from file: {e}")
     return {}
+
+
+def load_settings():
+    """Load admin settings from JSON file."""
+    defaults = {
+        "conversation_agent_id": "",
+        "tts_engine_id": "",
+        "tts_language": "",
+        "tts_voice": "",
+    }
+    try:
+        if os.path.exists(SETTINGS_FILE):
+            with open(SETTINGS_FILE, "r") as f:
+                settings = json.load(f)
+            return {**defaults, **settings}
+    except Exception as e:
+        print(f"WARNING: Could not load settings from file: {e}")
+    return defaults
+
+
+def save_settings(settings):
+    """Save admin settings to JSON file."""
+    try:
+        os.makedirs("/share", exist_ok=True)
+        with open(SETTINGS_FILE, "w") as f:
+            json.dump(settings, f, indent=2)
+        return True
+    except Exception as e:
+        print(f"ERROR: Could not save settings: {e}")
+        return False
+
 
 def save_pin_map(pin_map):
     """Save PIN map to JSON file"""
@@ -94,10 +126,10 @@ async def websocket_recv_json(websocket):
     return json.loads(await asyncio.wait_for(websocket.recv(), timeout=10))
 
 
-async def fetch_ha_users():
-    """Fetch Home Assistant users via the admin-only websocket auth API."""
+async def ha_websocket_request(message):
+    """Send one request to Home Assistant's websocket API."""
     if not SUPERVISOR_TOKEN:
-        return [], "SUPERVISOR_TOKEN is not set"
+        return None, "SUPERVISOR_TOKEN is not set"
 
     endpoints_to_try = [
         "ws://supervisor/core/websocket",
@@ -126,31 +158,110 @@ async def fetch_ha_users():
                     last_error = f"{endpoint}: authentication failed: {auth_response}"
                     continue
 
-                await websocket.send(json.dumps({
-                    "id": 1,
-                    "type": "config/auth/list",
-                }))
-                users_response = await websocket_recv_json(websocket)
-                if not users_response.get("success"):
-                    last_error = f"{endpoint}: user list failed: {users_response}"
+                payload = {"id": 1, **message}
+                await websocket.send(json.dumps(payload))
+                response = await websocket_recv_json(websocket)
+                if not response.get("success"):
+                    last_error = f"{endpoint}: request failed: {response}"
                     continue
 
-                users = users_response.get("result", [])
-                filtered_users = [
-                    {
-                        "id": user.get("id"),
-                        "name": user.get("name") or user.get("username") or user.get("id"),
-                    }
-                    for user in users
-                    if user.get("id") and not user.get("system_generated", False)
-                ]
-                print(f"Found {len(filtered_users)} users at {endpoint}")
-                return filtered_users, None
+                return response.get("result"), None
         except Exception as e:
             last_error = f"{endpoint}: {e}"
-            print(f"Error fetching users from {endpoint}: {e}")
+            print(f"Error sending websocket request to {endpoint}: {e}")
 
-    return [], last_error or "Could not fetch users from Home Assistant"
+    return None, last_error or "Could not call Home Assistant websocket API"
+
+
+async def fetch_ha_users():
+    """Fetch Home Assistant users via the admin-only websocket auth API."""
+    users, error = await ha_websocket_request({"type": "config/auth/list"})
+    if error:
+        return [], error
+
+    users = users or []
+    filtered_users = [
+        {
+            "id": user.get("id"),
+            "name": user.get("name") or user.get("username") or user.get("id"),
+        }
+        for user in users
+        if user.get("id") and not user.get("system_generated", False)
+    ]
+    print(f"Found {len(filtered_users)} users")
+    return filtered_users, None
+
+
+async def fetch_conversation_agents():
+    """Fetch available Home Assistant conversation agents."""
+    result, error = await ha_websocket_request({"type": "conversation/agent/list"})
+    if error:
+        return [], error
+
+    raw_agents = result.get("agents", result) if isinstance(result, dict) else result
+    agents = []
+    for agent in raw_agents:
+        if isinstance(agent, str):
+            agents.append({"id": agent, "name": agent})
+            continue
+        if not isinstance(agent, dict):
+            continue
+        agent_id = agent.get("id") or agent.get("agent_id")
+        if agent_id:
+            agents.append({
+                "id": agent_id,
+                "name": agent.get("name") or agent_id,
+            })
+    return agents, None
+
+
+async def fetch_tts_engines():
+    """Fetch available Home Assistant TTS engines."""
+    result, error = await ha_websocket_request({"type": "tts/engine/list"})
+    if error:
+        return [], error
+
+    providers = result.get("providers", []) if isinstance(result, dict) else []
+    engines = []
+    for provider in providers:
+        if not isinstance(provider, dict):
+            continue
+        engine_id = provider.get("engine_id")
+        if engine_id and not provider.get("deprecated", False):
+            engines.append({
+                "id": engine_id,
+                "name": provider.get("name") or engine_id,
+                "supported_languages": provider.get("supported_languages") or [],
+            })
+    return engines, None
+
+
+async def fetch_tts_voices(engine_id: str, language: str):
+    """Fetch available voices for a Home Assistant TTS engine and language."""
+    if not engine_id or not language:
+        return [], None
+
+    result, error = await ha_websocket_request({
+        "type": "tts/engine/voices",
+        "engine_id": engine_id,
+        "language": language,
+    })
+    if error:
+        return [], error
+
+    raw_voices = result.get("voices", []) if isinstance(result, dict) else []
+    voices = []
+    for voice in raw_voices:
+        if isinstance(voice, str):
+            voices.append({"id": voice, "name": voice})
+        elif isinstance(voice, dict):
+            voice_id = voice.get("voice_id") or voice.get("id") or voice.get("name")
+            if voice_id:
+                voices.append({
+                    "id": voice_id,
+                    "name": voice.get("name") or voice_id,
+                })
+    return voices, None
 
 
 def pin_entry_user_id(pin_entry):
@@ -173,7 +284,7 @@ PIN_MAP = load_pin_map()
 
 if DEBUG:
     print(f"Loaded PIN_MAP with {len(PIN_MAP)} entries: {PIN_MAP}")
-    print(f"ELEVEN_VOICE_ID: {ELEVEN_VOICE_ID}")
+    print(f"Loaded settings: {load_settings()}")
 
 
 def twiml_response(xml: str):
@@ -195,20 +306,104 @@ def safe_redirect_to_session(user_id: str, user_name: str | None, message: str):
     """)
 
 
-def tts_to_wav(text: str, filename: str) -> str:
-    safe_filename = filename.replace(" ", "_")
-    output_path = f"/share/{safe_filename}.wav"
+def extension_from_content_type(content_type: str | None) -> str:
+    if not content_type:
+        return "mp3"
+    if "wav" in content_type:
+        return "wav"
+    if "mpeg" in content_type or "mp3" in content_type:
+        return "mp3"
+    if "ogg" in content_type:
+        return "ogg"
+    return "mp3"
 
-    audio = tts_client.text_to_speech.convert(
-        voice_id=ELEVEN_VOICE_ID,
-        model_id="eleven_multilingual_v2",
-        text=text,
-        output_format="wav_8000"
+
+async def resolve_tts_settings(settings):
+    """Fill missing TTS settings from available Home Assistant engines."""
+    resolved = dict(settings)
+    engines, error = await fetch_tts_engines()
+    if error:
+        print(f"Could not fetch TTS engines: {error}")
+        return resolved
+
+    selected_engine = None
+    if resolved.get("tts_engine_id"):
+        selected_engine = next(
+            (engine for engine in engines if engine["id"] == resolved["tts_engine_id"]),
+            None,
+        )
+    if selected_engine is None and engines:
+        selected_engine = engines[0]
+        resolved["tts_engine_id"] = selected_engine["id"]
+
+    if not resolved.get("tts_language") and selected_engine:
+        languages = selected_engine.get("supported_languages") or []
+        if isinstance(languages, list) and languages:
+            resolved["tts_language"] = languages[0]
+        else:
+            resolved["tts_language"] = "en-US"
+
+    return resolved
+
+
+async def tts_to_audio(text: str, filename: str) -> str:
+    settings = await resolve_tts_settings(load_settings())
+    engine_id = settings.get("tts_engine_id")
+    language = settings.get("tts_language")
+    voice = settings.get("tts_voice")
+
+    if not engine_id:
+        raise RuntimeError("No Home Assistant TTS engine is configured or available.")
+
+    payload = {
+        "engine_id": engine_id,
+        "message": text,
+        "cache": True,
+    }
+    if language:
+        payload["language"] = language
+    if voice:
+        payload["options"] = {"voice": voice}
+
+    response = requests.post(
+        "http://supervisor/core/api/tts_get_url",
+        headers={
+            "Authorization": f"Bearer {SUPERVISOR_TOKEN}",
+            "Content-Type": "application/json",
+        },
+        json=payload,
+        timeout=30,
     )
 
+    print("HA TTS status:", response.status_code)
+    print("HA TTS body:", response.text[:500])
+
+    if response.status_code < 200 or response.status_code >= 300:
+        raise RuntimeError(f"Home Assistant TTS returned {response.status_code}")
+
+    tts_response = response.json()
+    tts_path = tts_response.get("path")
+    if not tts_path:
+        raise RuntimeError(f"Home Assistant TTS response missing path: {tts_response}")
+
+    audio_url = f"http://supervisor/core{tts_path}"
+    audio_response = requests.get(
+        audio_url,
+        headers={"Authorization": f"Bearer {SUPERVISOR_TOKEN}"},
+        timeout=30,
+    )
+
+    if audio_response.status_code < 200 or audio_response.status_code >= 300:
+        raise RuntimeError(
+            f"Could not download Home Assistant TTS audio: {audio_response.status_code}"
+        )
+
+    extension = extension_from_content_type(audio_response.headers.get("content-type"))
+    safe_filename = re.sub(r"[^a-zA-Z0-9_.-]", "_", filename)
+    output_path = f"/share/{safe_filename}.{extension}"
+
     with open(output_path, "wb") as f:
-        for chunk in audio:
-            f.write(chunk)
+        f.write(audio_response.content)
 
     return output_path
 
@@ -405,6 +600,36 @@ async def admin_ui():
     <body>
         <div class="container">
             <h1>🔐 PIN Management</h1>
+
+            <div class="form-section">
+                <h2 style="font-size: 18px; margin-bottom: 15px; color: #333;">Assistant Settings</h2>
+                <div class="form-group">
+                    <label for="conversationAgent">Conversation Agent:</label>
+                    <select id="conversationAgent">
+                        <option value="">-- Loading agents --</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="ttsEngine">TTS Engine:</label>
+                    <select id="ttsEngine" onchange="onTtsEngineChanged()">
+                        <option value="">-- Loading TTS engines --</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="ttsLanguage">TTS Language:</label>
+                    <select id="ttsLanguage" onchange="loadVoices()">
+                        <option value="">-- Select TTS engine first --</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="ttsVoice">TTS Voice:</label>
+                    <select id="ttsVoice">
+                        <option value="">Default voice</option>
+                    </select>
+                </div>
+                <button onclick="saveSettings()">Save Settings</button>
+                <div class="status" id="settingsStatus"></div>
+            </div>
             
             <div class="form-section">
                 <div class="form-group">
@@ -430,6 +655,152 @@ async def admin_ui():
         </div>
 
         <script>
+            let appSettings = {};
+            let ttsEngines = [];
+
+            async function loadSettings() {
+                try {
+                    const res = await fetch('/admin/api/settings');
+                    appSettings = await res.json();
+                    await Promise.all([loadConversationAgents(), loadTtsEngines()]);
+                } catch (err) {
+                    console.error('Error loading settings:', err);
+                    const status = document.getElementById('settingsStatus');
+                    status.className = 'status error';
+                    status.textContent = 'Error loading settings: ' + err.message;
+                }
+            }
+
+            async function loadConversationAgents() {
+                const res = await fetch('/admin/api/conversation-agents');
+                const data = await res.json();
+                const select = document.getElementById('conversationAgent');
+                select.innerHTML = '<option value="">Home Assistant default</option>';
+
+                if (data.agents && data.agents.length > 0) {
+                    data.agents.forEach(agent => {
+                        const opt = document.createElement('option');
+                        opt.value = agent.id;
+                        opt.textContent = agent.name;
+                        select.appendChild(opt);
+                    });
+                }
+
+                select.value = appSettings.conversation_agent_id || '';
+            }
+
+            async function loadTtsEngines() {
+                const res = await fetch('/admin/api/tts-engines');
+                const data = await res.json();
+                ttsEngines = data.engines || [];
+                const select = document.getElementById('ttsEngine');
+                select.innerHTML = '<option value="">-- Select TTS engine --</option>';
+
+                ttsEngines.forEach(engine => {
+                    const opt = document.createElement('option');
+                    opt.value = engine.id;
+                    opt.textContent = engine.name;
+                    select.appendChild(opt);
+                });
+
+                select.value = appSettings.tts_engine_id || '';
+                onTtsEngineChanged();
+            }
+
+            function onTtsEngineChanged() {
+                const engineId = document.getElementById('ttsEngine').value;
+                const languageSelect = document.getElementById('ttsLanguage');
+                const engine = ttsEngines.find(item => item.id === engineId);
+                languageSelect.innerHTML = '';
+
+                if (!engine) {
+                    languageSelect.innerHTML = '<option value="">-- Select TTS engine first --</option>';
+                    document.getElementById('ttsVoice').innerHTML = '<option value="">Default voice</option>';
+                    return;
+                }
+
+                const languages = Array.isArray(engine.supported_languages) ? engine.supported_languages : [];
+                if (languages.length > 0) {
+                    languages.forEach(language => {
+                        const opt = document.createElement('option');
+                        opt.value = language;
+                        opt.textContent = language;
+                        languageSelect.appendChild(opt);
+                    });
+                } else {
+                    const opt = document.createElement('option');
+                    opt.value = appSettings.tts_language || 'en-US';
+                    opt.textContent = appSettings.tts_language || 'en-US';
+                    languageSelect.appendChild(opt);
+                }
+
+                languageSelect.value = appSettings.tts_language || languageSelect.options[0]?.value || '';
+                loadVoices();
+            }
+
+            async function loadVoices() {
+                const engineId = document.getElementById('ttsEngine').value;
+                const language = document.getElementById('ttsLanguage').value;
+                const select = document.getElementById('ttsVoice');
+                select.innerHTML = '<option value="">Default voice</option>';
+
+                if (!engineId || !language) return;
+
+                try {
+                    const res = await fetch(`/admin/api/tts-voices?engine_id=${encodeURIComponent(engineId)}&language=${encodeURIComponent(language)}`);
+                    const data = await res.json();
+                    if (data.voices && data.voices.length > 0) {
+                        data.voices.forEach(voice => {
+                            const opt = document.createElement('option');
+                            opt.value = voice.id;
+                            opt.textContent = voice.name;
+                            select.appendChild(opt);
+                        });
+                    }
+                    select.value = appSettings.tts_voice || '';
+                } catch (err) {
+                    console.error('Error loading TTS voices:', err);
+                }
+            }
+
+            async function saveSettings() {
+                const status = document.getElementById('settingsStatus');
+                const settings = {
+                    conversation_agent_id: document.getElementById('conversationAgent').value,
+                    tts_engine_id: document.getElementById('ttsEngine').value,
+                    tts_language: document.getElementById('ttsLanguage').value,
+                    tts_voice: document.getElementById('ttsVoice').value
+                };
+
+                if (!settings.tts_engine_id) {
+                    status.className = 'status error';
+                    status.textContent = 'Please select a TTS engine';
+                    return;
+                }
+
+                try {
+                    const res = await fetch('/admin/api/settings', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(settings)
+                    });
+
+                    if (res.ok) {
+                        appSettings = settings;
+                        status.className = 'status success';
+                        status.textContent = 'Settings saved successfully';
+                        setTimeout(() => { status.style.display = 'none'; }, 3000);
+                    } else {
+                        const error = await res.text();
+                        status.className = 'status error';
+                        status.textContent = 'Error: ' + error;
+                    }
+                } catch (err) {
+                    status.className = 'status error';
+                    status.textContent = 'Error: ' + err.message;
+                }
+            }
+
             async function loadUsers() {
                 try {
                     const res = await fetch('/admin/api/users');
@@ -546,6 +917,7 @@ async def admin_ui():
                 if (e.key === 'Enter') addPin();
             });
 
+            loadSettings();
             loadUsers();
             loadPins();
             setInterval(loadPins, 5000);
@@ -560,6 +932,59 @@ async def get_users():
     """Get list of Home Assistant users"""
     users, error = await fetch_ha_users()
     response = {"users": users}
+    if error:
+        response["error"] = error
+    return response
+
+
+@app.get("/admin/api/settings")
+async def get_settings():
+    """Get assistant settings"""
+    return load_settings()
+
+
+@app.post("/admin/api/settings")
+async def update_settings(request: SettingsRequest):
+    """Save assistant settings"""
+    settings = {
+        "conversation_agent_id": request.conversation_agent_id or "",
+        "tts_engine_id": request.tts_engine_id or "",
+        "tts_language": request.tts_language or "",
+        "tts_voice": request.tts_voice or "",
+    }
+    if not settings["tts_engine_id"]:
+        return JSONResponse({"error": "TTS engine required"}, status_code=400)
+
+    if save_settings(settings):
+        return {"success": True, "settings": settings}
+    return JSONResponse({"error": "Could not save settings"}, status_code=500)
+
+
+@app.get("/admin/api/conversation-agents")
+async def get_conversation_agents():
+    """Get available Home Assistant conversation agents"""
+    agents, error = await fetch_conversation_agents()
+    response = {"agents": agents}
+    if error:
+        response["error"] = error
+    return response
+
+
+@app.get("/admin/api/tts-engines")
+async def get_tts_engines():
+    """Get available Home Assistant TTS engines"""
+    engines, error = await fetch_tts_engines()
+    response = {"engines": engines}
+    if error:
+        response["error"] = error
+    return response
+
+
+@app.get("/admin/api/tts-voices")
+async def get_tts_voices(engine_id: str, language: str):
+    """Get available voices for a Home Assistant TTS engine"""
+    voices, error = await fetch_tts_voices(engine_id, language)
+    response = {"voices": voices}
     if error:
         response["error"] = error
     return response
@@ -730,7 +1155,7 @@ async def start_session(
         encoded_user_id = quote(user_id)
         encoded_user_name = quote(user_name)
 
-        prompt_audio = tts_to_wav(
+        prompt_audio = await tts_to_audio(
             f"Hello {user_name}. What would you like to do?",
             f"{user_id}_prompt",
         )
@@ -821,12 +1246,14 @@ async def process_command(
             "Content-Type": "application/json",
         }
 
+        settings = load_settings()
         payload = {
             "text": spoken_text,
             "conversation_id": f"twilio_{user_id}",
             "language": "en",
-            "agent_id": "conversation.openai_conversation"
         }
+        if settings.get("conversation_agent_id"):
+            payload["agent_id"] = settings["conversation_agent_id"]
 
         print("Sending to Home Assistant:", payload)
 
@@ -873,7 +1300,7 @@ async def process_command(
 
         print("HA reply:", reply)
 
-        reply_audio = tts_to_wav(reply, f"{CallSid}_reply")
+        reply_audio = await tts_to_audio(reply, f"{CallSid}_reply")
         filename = os.path.basename(reply_audio)
         public_url = public_audio_url(filename)
 

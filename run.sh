@@ -26,8 +26,6 @@ except Exception as e:
 # Export environment variables
 os.environ['TWILIO_ACCOUNT_SID'] = str(config.get('twilio_account_sid', '')).strip()
 os.environ['TWILIO_AUTH_TOKEN'] = str(config.get('twilio_auth_token', '')).strip()
-os.environ['ELEVEN_API_KEY'] = str(config.get('eleven_api_key', '')).strip()
-os.environ['ELEVEN_VOICE_ID'] = str(config.get('eleven_voice_id', '')).strip()
 os.environ['PUBLIC_BASE_URL'] = str(config.get('public_base_url', '')).strip().rstrip('/')
 
 # Handle pin_map - could be dict or JSON string

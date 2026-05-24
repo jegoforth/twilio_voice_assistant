@@ -17,16 +17,12 @@
   "options": {
     "twilio_account_sid": "",
     "twilio_auth_token": "",
-    "eleven_api_key": "",
-    "eleven_voice_id": "",
     "public_base_url": "",
     "debug": false
   },
   "schema": {
     "twilio_account_sid": "str",
     "twilio_auth_token": "password",
-    "eleven_api_key": "password",
-    "eleven_voice_id": "str",
     "public_base_url": "url",
     "debug": "bool?"
   },

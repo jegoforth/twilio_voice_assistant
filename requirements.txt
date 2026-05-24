@@ -3,5 +3,4 @@ uvicorn
 twilio
 openai-whisper
 python-multipart
-elevenlabs
 websockets

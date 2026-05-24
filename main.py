@@ -1154,32 +1154,16 @@ async def incoming_call(
 ):
     return twiml_response("""
     <Response>
-        <Gather
-            input="speech dtmf"
-            numDigits="4"
-            timeout="6"
-            speechTimeout="auto"
-            action="/check_pin_input"
-            method="POST"
-        >
-            <Say>Please say or enter your four digit PIN.</Say>
-        </Gather>
-        <Say>Sorry, I did not receive a PIN. Please try again.</Say>
-        <Redirect>/incoming_call</Redirect>
+        <Say>Please say your four digit PIN after the beep.</Say>
+        <Record
+            maxLength="5"
+            timeout="4"
+            action="/check_pin"
+            playBeep="true"
+            trim="do-not-trim"
+        />
     </Response>
     """)
-
-
-@app.post("/check_pin_input")
-async def check_pin_input(
-    Digits: str = Form(None),
-    SpeechResult: str = Form(None),
-):
-    spoken_or_typed_pin = Digits or SpeechResult or ""
-    if DEBUG:
-        input_method = "DTMF" if Digits else "speech"
-        print(f"PIN received by {input_method}")
-    return await handle_pin_digits(spoken_or_typed_pin)
 
 
 @app.post("/check_pin")

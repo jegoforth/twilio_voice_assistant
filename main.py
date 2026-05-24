@@ -350,6 +350,21 @@ def polite_hangup(message: str = "Goodbye."):
     """)
 
 
+def record_command_twiml(encoded_user_id: str, encoded_user_name: str) -> str:
+    return f"""
+        <Say>Listening.</Say>
+        <Record
+            maxLength="10"
+            timeout="5"
+            action="/process_command?user_id={encoded_user_id}&amp;user_name={encoded_user_name}"
+            playBeep="true"
+            trim="do-not-trim"
+        />
+        <Say>I did not hear anything. Goodbye.</Say>
+        <Hangup/>
+    """
+
+
 def extension_from_content_type(content_type: str | None) -> str:
     if not content_type:
         return "mp3"
@@ -1235,19 +1250,12 @@ async def start_session(
 
         filename = os.path.basename(prompt_audio)
         public_url = public_audio_url(filename)
+        record_twiml = record_command_twiml(encoded_user_id, encoded_user_name)
 
         return twiml_response(f"""
         <Response>
             <Play>{public_url}</Play>
-                <Record
-                    maxLength="10"
-                    timeout="5"
-                    action="/process_command?user_id={encoded_user_id}&amp;user_name={encoded_user_name}"
-                    playBeep="false"
-                    trim="do-not-trim"
-                />
-            <Say>I did not hear anything. Goodbye.</Say>
-            <Hangup/>
+            {record_twiml}
         </Response>
         """)
 
@@ -1370,19 +1378,12 @@ async def process_command(
         reply_audio = await tts_to_audio(reply, f"{CallSid}_reply")
         filename = os.path.basename(reply_audio)
         public_url = public_audio_url(filename)
+        record_twiml = record_command_twiml(encoded_user_id, encoded_user_name)
 
         return twiml_response(f"""
         <Response>
             <Play>{public_url}</Play>
-                <Record
-                    maxLength="10"
-                    timeout="5"
-                    action="/process_command?user_id={encoded_user_id}&amp;user_name={encoded_user_name}"
-                    playBeep="false"
-                    trim="do-not-trim"
-                />
-            <Say>I did not hear anything. Goodbye.</Say>
-            <Hangup/>
+            {record_twiml}
         </Response>
         """)
 

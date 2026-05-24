@@ -968,6 +968,11 @@ async def admin_ui(request: Request):
     return html.replace("__ADMIN_API_BASE__", json.dumps(admin_api_base))
 
 
+@app.get("//admin", response_class=HTMLResponse)
+async def admin_ui_double_slash(request: Request):
+    return await admin_ui(request)
+
+
 @app.get("/admin/api/users")
 async def get_users(request: Request):
     """Get list of Home Assistant users"""

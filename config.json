@@ -1,6 +1,6 @@
 {
   "name": "Twilio Voice Assistant",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "slug": "twilio_voice_assistant",
   "description": "Webhook service for Twilio phone calls, PIN authentication, Whisper STT, and Home Assistant AI integration.",
   "arch": ["amd64", "aarch64"],

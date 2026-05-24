@@ -496,6 +496,54 @@ def normalize_digits(text: str) -> str:
     return re.sub(r"[^0-9]", "", text)
 
 
+def normalize_command(text: str) -> str:
+    text = text.lower()
+    text = re.sub(r"[^a-z0-9\s']", " ", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def is_end_call_phrase(text: str) -> bool:
+    command = normalize_command(text)
+    if not command:
+        return False
+
+    exact_phrases = {
+        "bye",
+        "bye bye",
+        "goodbye",
+        "good bye",
+        "hang up",
+        "end call",
+        "end the call",
+        "disconnect",
+        "that's all",
+        "that is all",
+        "that's all i needed",
+        "that is all i needed",
+        "that's all i need",
+        "that is all i need",
+        "i'm done",
+        "i am done",
+        "all done",
+        "no thank you",
+        "no thanks",
+    }
+    if command in exact_phrases:
+        return True
+
+    starts_with_phrases = (
+        "goodbye ",
+        "good bye ",
+        "hang up ",
+        "end the call ",
+        "that's all ",
+        "that is all ",
+        "i'm done ",
+        "i am done ",
+    )
+    return command.startswith(starts_with_phrases)
+
+
 async def handle_pin_digits(digits: str):
     global PIN_MAP
     PIN_MAP = load_pin_map()
@@ -1314,6 +1362,9 @@ async def process_command(
 
         if not spoken_text:
             return polite_hangup("I did not hear anything. Goodbye.")
+
+        if is_end_call_phrase(spoken_text):
+            return polite_hangup("Understood. Goodbye.")
 
         ha_url = "http://supervisor/core/api/conversation/process"
         headers = {

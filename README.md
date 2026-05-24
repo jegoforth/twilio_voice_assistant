@@ -118,6 +118,8 @@ PINs and assistant settings are stored in `/share/twilio_voice_assistant` so the
 2. Say your 4 digit PIN after the prompt.
 3. After authentication, ask Home Assistant a command.
 4. Home Assistant should process the command through the selected conversation agent and reply using the selected TTS engine.
+5. To end the call, say a phrase such as `goodbye`, `hang up`, `end call`, `that's all`, or `I'm done`.
+6. The add-on should say goodbye and disconnect the call.
 
 ## Notes
 

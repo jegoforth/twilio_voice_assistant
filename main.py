@@ -341,6 +341,15 @@ def safe_redirect_to_session(user_id: str, user_name: str | None, message: str):
     """)
 
 
+def polite_hangup(message: str = "Goodbye."):
+    return twiml_response(f"""
+    <Response>
+        <Say>{message}</Say>
+        <Hangup/>
+    </Response>
+    """)
+
+
 def extension_from_content_type(content_type: str | None) -> str:
     if not content_type:
         return "mp3"
@@ -470,6 +479,40 @@ def normalize_digits(text: str) -> str:
         text = re.sub(rf"\b{word}\b", digit, text)
 
     return re.sub(r"[^0-9]", "", text)
+
+
+async def handle_pin_digits(digits: str):
+    global PIN_MAP
+    PIN_MAP = load_pin_map()
+    digits = normalize_digits(digits)
+
+    if DEBUG:
+        print(f"PIN received with {len(digits)} digits")
+
+    pin_entry = PIN_MAP.get(digits)
+    if pin_entry:
+        users, error = await fetch_ha_users()
+        if error:
+            print(f"Could not resolve user name after PIN auth: {error}")
+
+        user_map = {user["id"]: user["name"] for user in users}
+        user_id = pin_entry_user_id(pin_entry)
+        user_name = pin_entry_user_name(pin_entry, user_map)
+        encoded_user_id = quote(user_id)
+        encoded_user_name = quote(user_name)
+        return twiml_response(f"""
+        <Response>
+            <Say>Thank you. Connecting you now.</Say>
+            <Redirect>/start_session?user_id={encoded_user_id}&amp;user_name={encoded_user_name}</Redirect>
+        </Response>
+        """)
+
+    return twiml_response("""
+    <Response>
+        <Say>Incorrect PIN. Please try again.</Say>
+        <Redirect>/incoming_call</Redirect>
+    </Response>
+    """)
 
 
 def download_twilio_recording(recording_url: str, audio_path: str) -> bool:
@@ -1111,16 +1154,32 @@ async def incoming_call(
 ):
     return twiml_response("""
     <Response>
-        <Say>Please say your four digit PIN after the beep.</Say>
-        <Record
-            maxLength="4"
-            timeout="3"
-            action="/check_pin"
-            playBeep="true"
-            trim="do-not-trim"
-        />
+        <Gather
+            input="speech dtmf"
+            numDigits="4"
+            timeout="6"
+            speechTimeout="auto"
+            action="/check_pin_input"
+            method="POST"
+        >
+            <Say>Please say or enter your four digit PIN.</Say>
+        </Gather>
+        <Say>Sorry, I did not receive a PIN. Please try again.</Say>
+        <Redirect>/incoming_call</Redirect>
     </Response>
     """)
+
+
+@app.post("/check_pin_input")
+async def check_pin_input(
+    Digits: str = Form(None),
+    SpeechResult: str = Form(None),
+):
+    spoken_or_typed_pin = Digits or SpeechResult or ""
+    if DEBUG:
+        input_method = "DTMF" if Digits else "speech"
+        print(f"PIN received by {input_method}")
+    return await handle_pin_digits(spoken_or_typed_pin)
 
 
 @app.post("/check_pin")
@@ -1148,36 +1207,10 @@ async def check_pin(
             condition_on_previous_text=False
         )
         spoken_text = result.get("text", "").strip()
-        digits = normalize_digits(spoken_text)
 
-        print("PIN spoken text:", spoken_text)
-        print("PIN normalized digits:", digits)
-
-        pin_entry = PIN_MAP.get(digits)
-
-        if pin_entry:
-            users, error = await fetch_ha_users()
-            if error:
-                print(f"Could not resolve user name after PIN auth: {error}")
-
-            user_map = {user["id"]: user["name"] for user in users}
-            user_id = pin_entry_user_id(pin_entry)
-            user_name = pin_entry_user_name(pin_entry, user_map)
-            encoded_user_id = quote(user_id)
-            encoded_user_name = quote(user_name)
-            return twiml_response(f"""
-            <Response>
-                <Say>Thank you. Connecting you now.</Say>
-                <Redirect>/start_session?user_id={encoded_user_id}&amp;user_name={encoded_user_name}</Redirect>
-            </Response>
-            """)
-
-        return twiml_response("""
-        <Response>
-            <Say>Incorrect PIN. Please try again.</Say>
-            <Redirect>/incoming_call</Redirect>
-        </Response>
-        """)
+        if DEBUG:
+            print("PIN spoken text:", spoken_text)
+        return await handle_pin_digits(spoken_text)
 
     except Exception:
         print("Exception in check_pin:")
@@ -1222,12 +1255,14 @@ async def start_session(
         <Response>
             <Play>{public_url}</Play>
                 <Record
-                    maxLength="7"
-                    timeout="2"
+                    maxLength="10"
+                    timeout="5"
                     action="/process_command?user_id={encoded_user_id}&amp;user_name={encoded_user_name}"
                     playBeep="false"
                     trim="do-not-trim"
                 />
+            <Say>I did not hear anything. Goodbye.</Say>
+            <Hangup/>
         </Response>
         """)
 
@@ -1273,11 +1308,7 @@ async def process_command(
 
         # Prevent Whisper from transcribing empty files
         if os.path.getsize(audio_path) < 2000:
-            return safe_redirect_to_session(
-                user_id,
-                user_name,
-                "Sorry, I did not hear a command."
-            )
+            return polite_hangup("I did not hear anything. Goodbye.")
 
         result = model.transcribe(
             audio_path,
@@ -1289,11 +1320,7 @@ async def process_command(
         print("Command spoken text:", spoken_text)
 
         if not spoken_text:
-            return safe_redirect_to_session(
-                user_id,
-                user_name,
-                "Sorry, I did not hear a command."
-            )
+            return polite_hangup("I did not hear anything. Goodbye.")
 
         ha_url = "http://supervisor/core/api/conversation/process"
         headers = {
@@ -1363,12 +1390,14 @@ async def process_command(
         <Response>
             <Play>{public_url}</Play>
                 <Record
-                    maxLength="7"
-                    timeout="2"
+                    maxLength="10"
+                    timeout="5"
                     action="/process_command?user_id={encoded_user_id}&amp;user_name={encoded_user_name}"
                     playBeep="false"
                     trim="do-not-trim"
                 />
+            <Say>I did not hear anything. Goodbye.</Say>
+            <Hangup/>
         </Response>
         """)
 

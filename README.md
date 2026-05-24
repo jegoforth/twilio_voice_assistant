@@ -17,16 +17,18 @@ Before installing, make sure you have:
   - An active phone number.
   - Account SID.
   - Auth token.
-- A secure public HTTPS URL that can reach this add-on on port `8000`.
+- A secure public HTTPS URL that can reach the Twilio webhook and generated audio routes on this add-on.
 
-Twilio must be able to reach the add-on from the public internet. Common options include:
+Twilio must be able to reach the webhook and generated audio routes from the public internet. Common options include:
 
 - Cloudflare Tunnel.
 - NGINX Proxy Manager.
 - A reverse proxy with a valid SSL certificate.
-- Another HTTPS tunnel/proxy that forwards to Home Assistant add-on port `8000`.
+- Another HTTPS tunnel/proxy that forwards selected paths to Home Assistant add-on port `8000`.
 
 Do not expose the add-on over plain HTTP. Twilio webhooks should use HTTPS.
+
+Do not expose the admin page publicly. The admin page is intended to be opened through Home Assistant Ingress, where Home Assistant handles authentication.
 
 ## Install
 
@@ -67,7 +69,17 @@ In Twilio, configure your phone number so incoming voice calls are sent to this 
 6. Set the method to `HTTP POST`.
 7. Save the phone number configuration.
 
-Your public domain must forward requests to the add-on on port `8000`.
+Your public domain should forward only these paths to the add-on on port `8000`:
+
+```text
+/incoming_call
+/check_pin
+/start_session
+/process_command
+/audio/*
+```
+
+Do not forward `/admin` or `/admin/api/*` to the public internet.
 
 ## Add-on Configuration
 
@@ -84,11 +96,7 @@ Start the add-on after saving the configuration.
 
 ## Admin Page Setup
 
-Open the add-on web UI, or go directly to:
-
-```text
-http://HOME_ASSISTANT_HOST:8000/admin
-```
+Open the add-on web UI from Home Assistant. The admin page uses Home Assistant Ingress, so it should be accessed from inside Home Assistant instead of through the public Twilio URL.
 
 From the admin page:
 
@@ -102,7 +110,7 @@ From the admin page:
    - Select the Home Assistant user for that PIN.
    - Click **Add PIN**.
 
-PINs and assistant settings are stored in `/share` so they survive add-on rebuilds.
+PINs and assistant settings are stored in `/share/twilio_voice_assistant` so they survive add-on rebuilds.
 
 ## Test
 
@@ -116,3 +124,4 @@ PINs and assistant settings are stored in `/share` so they survive add-on rebuil
 - Rotate your Twilio auth token if it is ever pasted into logs, screenshots, chat, or documentation.
 - The add-on currently uses local Whisper transcription for call audio before sending text to Home Assistant Conversation.
 - The selected Home Assistant TTS engine must be able to generate audio that Twilio can play through the public URL configured in `public_base_url`.
+- Generated audio is the only content served from `/audio`. Admin data and PIN settings are not served from the public audio route.

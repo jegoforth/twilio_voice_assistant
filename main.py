@@ -1,4 +1,5 @@
-from fastapi import FastAPI, Form
+from fastapi import FastAPI, Form, Request
+from fastapi import HTTPException
 from fastapi.responses import Response, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -14,7 +15,12 @@ from contextlib import asynccontextmanager
 from urllib.parse import quote
 
 app = FastAPI()
-app.mount("/audio", StaticFiles(directory="/share"), name="audio")
+
+DATA_DIR = "/share/twilio_voice_assistant"
+AUDIO_DIR = f"{DATA_DIR}/audio"
+INGRESS_PROXY_IP = "172.30.32.2"
+os.makedirs(AUDIO_DIR, exist_ok=True)
+app.mount("/audio", StaticFiles(directory=AUDIO_DIR), name="audio")
 
 # Faster model for phone audio
 model = whisper.load_model("tiny")
@@ -40,8 +46,8 @@ if missing_vars:
         "Please configure the addon with your API credentials."
     )
 
-PIN_MAP_FILE = "/share/pin_map.json"
-SETTINGS_FILE = "/share/twilio_voice_assistant_settings.json"
+PIN_MAP_FILE = f"{DATA_DIR}/pin_map.json"
+SETTINGS_FILE = f"{DATA_DIR}/settings.json"
 
 
 class PinRequest(BaseModel):
@@ -57,9 +63,22 @@ class SettingsRequest(BaseModel):
     tts_voice: str | None = None
 
 
+def require_ingress(request: Request):
+    """Restrict admin UI/API to Home Assistant Ingress."""
+    client_host = request.client.host if request.client else ""
+    has_ingress_header = (
+        request.headers.get("x-ingress-path")
+        or request.headers.get("x-supervisor-ingress")
+    )
+    if client_host == INGRESS_PROXY_IP and has_ingress_header:
+        return
+    raise HTTPException(status_code=404)
+
+
 def load_pin_map():
     """Load PIN map from JSON file"""
     try:
+        migrate_legacy_file("/share/pin_map.json", PIN_MAP_FILE)
         if os.path.exists(PIN_MAP_FILE):
             with open(PIN_MAP_FILE, "r") as f:
                 return json.load(f)
@@ -77,6 +96,7 @@ def load_settings():
         "tts_voice": "",
     }
     try:
+        migrate_legacy_file("/share/twilio_voice_assistant_settings.json", SETTINGS_FILE)
         if os.path.exists(SETTINGS_FILE):
             with open(SETTINGS_FILE, "r") as f:
                 settings = json.load(f)
@@ -84,6 +104,21 @@ def load_settings():
     except Exception as e:
         print(f"WARNING: Could not load settings from file: {e}")
     return defaults
+
+
+def migrate_legacy_file(old_path, new_path):
+    if os.path.exists(new_path) or not os.path.exists(old_path):
+        return
+    try:
+        os.makedirs(os.path.dirname(new_path), exist_ok=True)
+        with open(old_path, "r") as src:
+            data = json.load(src)
+        with open(new_path, "w") as dest:
+            json.dump(data, dest, indent=2)
+        os.remove(old_path)
+        print(f"Migrated {old_path} to {new_path}")
+    except Exception as e:
+        print(f"WARNING: Could not migrate {old_path}: {e}")
 
 
 def save_settings(settings):
@@ -400,7 +435,8 @@ async def tts_to_audio(text: str, filename: str) -> str:
 
     extension = extension_from_content_type(audio_response.headers.get("content-type"))
     safe_filename = re.sub(r"[^a-zA-Z0-9_.-]", "_", filename)
-    output_path = f"/share/{safe_filename}.{extension}"
+    os.makedirs(AUDIO_DIR, exist_ok=True)
+    output_path = f"{AUDIO_DIR}/{safe_filename}.{extension}"
 
     with open(output_path, "wb") as f:
         f.write(audio_response.content)
@@ -472,9 +508,12 @@ async def root():
 
 
 @app.get("/admin", response_class=HTMLResponse)
-async def admin_ui():
+async def admin_ui(request: Request):
     """Serve the admin UI"""
-    return """
+    require_ingress(request)
+    ingress_path = request.headers.get("x-ingress-path", "").rstrip("/")
+    admin_api_base = f"{ingress_path}/admin/api" if ingress_path else "/admin/api"
+    html = """
     <!DOCTYPE html>
     <html>
     <head>
@@ -655,12 +694,13 @@ async def admin_ui():
         </div>
 
         <script>
+            const ADMIN_API_BASE = __ADMIN_API_BASE__;
             let appSettings = {};
             let ttsEngines = [];
 
             async function loadSettings() {
                 try {
-                    const res = await fetch('/admin/api/settings');
+                    const res = await fetch(`${ADMIN_API_BASE}/settings`);
                     appSettings = await res.json();
                     await Promise.all([loadConversationAgents(), loadTtsEngines()]);
                 } catch (err) {
@@ -672,7 +712,7 @@ async def admin_ui():
             }
 
             async function loadConversationAgents() {
-                const res = await fetch('/admin/api/conversation-agents');
+                const res = await fetch(`${ADMIN_API_BASE}/conversation-agents`);
                 const data = await res.json();
                 const select = document.getElementById('conversationAgent');
                 select.innerHTML = '<option value="">Home Assistant default</option>';
@@ -690,7 +730,7 @@ async def admin_ui():
             }
 
             async function loadTtsEngines() {
-                const res = await fetch('/admin/api/tts-engines');
+                const res = await fetch(`${ADMIN_API_BASE}/tts-engines`);
                 const data = await res.json();
                 ttsEngines = data.engines || [];
                 const select = document.getElementById('ttsEngine');
@@ -747,7 +787,7 @@ async def admin_ui():
                 if (!engineId || !language) return;
 
                 try {
-                    const res = await fetch(`/admin/api/tts-voices?engine_id=${encodeURIComponent(engineId)}&language=${encodeURIComponent(language)}`);
+                    const res = await fetch(`${ADMIN_API_BASE}/tts-voices?engine_id=${encodeURIComponent(engineId)}&language=${encodeURIComponent(language)}`);
                     const data = await res.json();
                     if (data.voices && data.voices.length > 0) {
                         data.voices.forEach(voice => {
@@ -779,7 +819,7 @@ async def admin_ui():
                 }
 
                 try {
-                    const res = await fetch('/admin/api/settings', {
+                    const res = await fetch(`${ADMIN_API_BASE}/settings`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify(settings)
@@ -803,7 +843,7 @@ async def admin_ui():
 
             async function loadUsers() {
                 try {
-                    const res = await fetch('/admin/api/users');
+                    const res = await fetch(`${ADMIN_API_BASE}/users`);
                     const data = await res.json();
                     const select = document.getElementById('user');
                     select.innerHTML = '<option value="">-- Select user --</option>';
@@ -825,7 +865,7 @@ async def admin_ui():
 
             async function loadPins() {
                 try {
-                    const res = await fetch('/admin/api/pins');
+                    const res = await fetch(`${ADMIN_API_BASE}/pins`);
                     const data = await res.json();
                     const list = document.getElementById('pinsList');
                     
@@ -876,7 +916,7 @@ async def admin_ui():
                 try {
                     const select = document.getElementById('user');
                     const userName = select.options[select.selectedIndex]?.textContent || userId;
-                    const res = await fetch('/admin/api/pins', {
+                    const res = await fetch(`${ADMIN_API_BASE}/pins`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ pin, user_id: userId, user_name: userName })
@@ -904,7 +944,7 @@ async def admin_ui():
                 if (!confirm(`Delete PIN ${pin}?`)) return;
                 
                 try {
-                    const res = await fetch(`/admin/api/pins/${pin}`, { method: 'DELETE' });
+                    const res = await fetch(`${ADMIN_API_BASE}/pins/${pin}`, { method: 'DELETE' });
                     if (res.ok) {
                         loadPins();
                     }
@@ -925,11 +965,13 @@ async def admin_ui():
     </body>
     </html>
     """
+    return html.replace("__ADMIN_API_BASE__", json.dumps(admin_api_base))
 
 
 @app.get("/admin/api/users")
-async def get_users():
+async def get_users(request: Request):
     """Get list of Home Assistant users"""
+    require_ingress(request)
     users, error = await fetch_ha_users()
     response = {"users": users}
     if error:
@@ -938,19 +980,21 @@ async def get_users():
 
 
 @app.get("/admin/api/settings")
-async def get_settings():
+async def get_settings(request: Request):
     """Get assistant settings"""
+    require_ingress(request)
     return load_settings()
 
 
 @app.post("/admin/api/settings")
-async def update_settings(request: SettingsRequest):
+async def update_settings(settings_request: SettingsRequest, request: Request):
     """Save assistant settings"""
+    require_ingress(request)
     settings = {
-        "conversation_agent_id": request.conversation_agent_id or "",
-        "tts_engine_id": request.tts_engine_id or "",
-        "tts_language": request.tts_language or "",
-        "tts_voice": request.tts_voice or "",
+        "conversation_agent_id": settings_request.conversation_agent_id or "",
+        "tts_engine_id": settings_request.tts_engine_id or "",
+        "tts_language": settings_request.tts_language or "",
+        "tts_voice": settings_request.tts_voice or "",
     }
     if not settings["tts_engine_id"]:
         return JSONResponse({"error": "TTS engine required"}, status_code=400)
@@ -961,8 +1005,9 @@ async def update_settings(request: SettingsRequest):
 
 
 @app.get("/admin/api/conversation-agents")
-async def get_conversation_agents():
+async def get_conversation_agents(request: Request):
     """Get available Home Assistant conversation agents"""
+    require_ingress(request)
     agents, error = await fetch_conversation_agents()
     response = {"agents": agents}
     if error:
@@ -971,8 +1016,9 @@ async def get_conversation_agents():
 
 
 @app.get("/admin/api/tts-engines")
-async def get_tts_engines():
+async def get_tts_engines(request: Request):
     """Get available Home Assistant TTS engines"""
+    require_ingress(request)
     engines, error = await fetch_tts_engines()
     response = {"engines": engines}
     if error:
@@ -981,8 +1027,9 @@ async def get_tts_engines():
 
 
 @app.get("/admin/api/tts-voices")
-async def get_tts_voices(engine_id: str, language: str):
+async def get_tts_voices(engine_id: str, language: str, request: Request):
     """Get available voices for a Home Assistant TTS engine"""
+    require_ingress(request)
     voices, error = await fetch_tts_voices(engine_id, language)
     response = {"voices": voices}
     if error:
@@ -991,8 +1038,9 @@ async def get_tts_voices(engine_id: str, language: str):
 
 
 @app.get("/admin/api/pins")
-async def get_pins():
+async def get_pins(request: Request):
     """Get current PIN mappings"""
+    require_ingress(request)
     global PIN_MAP
     PIN_MAP = load_pin_map()
 
@@ -1005,12 +1053,13 @@ async def get_pins():
 
 
 @app.post("/admin/api/pins")
-async def add_pin(request: PinRequest):
+async def add_pin(pin_request: PinRequest, request: Request):
     """Add a PIN mapping"""
+    require_ingress(request)
     global PIN_MAP
 
-    pin = request.pin
-    user_id = request.user_id
+    pin = pin_request.pin
+    user_id = pin_request.user_id
 
     pin = pin.strip()
     if not pin or not pin.isdigit() or len(pin) != 4:
@@ -1021,22 +1070,23 @@ async def add_pin(request: PinRequest):
 
     PIN_MAP[pin] = {
         "user_id": user_id,
-        "user_name": request.user_name or user_id,
+        "user_name": pin_request.user_name or user_id,
     }
     if save_pin_map(PIN_MAP):
         return {
             "success": True,
             "pin": pin,
             "user_id": user_id,
-            "user_name": request.user_name,
+            "user_name": pin_request.user_name,
         }
     else:
         return JSONResponse({"error": "Could not save PIN"}, status_code=500)
 
 
 @app.delete("/admin/api/pins/{pin}")
-async def delete_pin(pin: str):
+async def delete_pin(pin: str, request: Request):
     """Delete a PIN mapping"""
+    require_ingress(request)
     global PIN_MAP
     
     if pin in PIN_MAP:
@@ -1328,8 +1378,9 @@ async def process_command(
 
 
 @app.get("/admin/debug")
-async def debug():
+async def debug(request: Request):
     """Debug endpoint - check configuration"""
+    require_ingress(request)
     token_set = bool(SUPERVISOR_TOKEN)
     users, error = await fetch_ha_users()
     

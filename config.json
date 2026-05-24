@@ -12,7 +12,10 @@
   "ports_description": {
     "8000/tcp": "FastAPI webhook server"
   },
-  "webui": "http://[HOST]:[PORT:8000]/admin",
+  "ingress": true,
+  "ingress_port": 8000,
+  "ingress_entry": "/admin",
+  "panel_admin": true,
   "map": ["share:rw"],
   "options": {
     "twilio_account_sid": "",

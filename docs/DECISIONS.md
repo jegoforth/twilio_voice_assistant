@@ -68,7 +68,7 @@ The Elspeth experience depends heavily on voice quality, personality, and consis
 
 ## Decision 004: Prefer Twilio Conversation Relay first
 
-**Status:** Proposed
+**Status:** Accepted
 
 The first v2.0.0 prototype should test Twilio Conversation Relay as the text-only bridge layer, with ElevenLabs TTS configured if supported by the active Twilio account/API.
 
@@ -89,6 +89,19 @@ This keeps Home Assistant in control of house reasoning and service execution wh
 - The project needs a websocket endpoint for Conversation Relay events.
 - The bridge must parse transcript events and send response text events.
 - The exact Twilio markup and provider/voice settings must be validated during implementation.
+
+### Implementation note
+
+The first prototype now includes:
+
+- `voice_bridge_mode: conversation_relay`.
+- `<Connect><ConversationRelay>` TwiML returned after successful PIN validation.
+- A `/conversation_relay` websocket endpoint.
+- Final transcript routing to Home Assistant Conversation.
+- Text token responses back to Conversation Relay.
+- ElevenLabs TTS provider and voice configuration placeholders.
+
+The remaining validation is account-level Twilio behavior: Conversation Relay availability, ElevenLabs TTS support, valid voice IDs, and language/provider compatibility.
 
 ## Decision 005: Treat ElevenLabs Agent integration as the secondary path
 
@@ -128,6 +141,7 @@ voice_bridge_mode: gather | conversation_relay | elevenlabs_agent
 
 - `gather` should be treated as compatibility mode.
 - New work should avoid deepening dependency on generated audio files except for fallback support.
+- `gather` remains the default `voice_bridge_mode` in add-on configuration.
 
 ## Decision 007: Prefer DTMF for PIN entry
 
@@ -144,6 +158,7 @@ PINs are structured numeric input. DTMF is faster, less ambiguous, and less like
 - The PIN prompt can use a short spoken prompt.
 - PIN validation can happen before the realtime voice bridge starts.
 - Speech-based PIN entry can remain an optional fallback if needed.
+- `pin_mode` now defaults to `dtmf`; `speech` keeps the legacy recording-based PIN path available.
 
 ## Decision 008: Keep Home Assistant Conversation as the assistant brain
 
@@ -183,6 +198,20 @@ custom_components/twilio_voice_assistant/
 - The integration should include a valid `manifest.json` with required Home Assistant and HACS fields.
 - The project may still need an add-on or external bridge service for public webhook and websocket endpoints.
 
+### Implementation note
+
+The repository now contains an initial skeleton:
+
+```text
+custom_components/twilio_voice_assistant/__init__.py
+custom_components/twilio_voice_assistant/manifest.json
+custom_components/twilio_voice_assistant/config_flow.py
+custom_components/twilio_voice_assistant/const.py
+hacs.json
+```
+
+The skeleton establishes repository direction only. It does not yet replace the add-on or move bridge runtime behavior into Home Assistant.
+
 ## Decision 010: Separate integration responsibilities from bridge-service responsibilities
 
 **Status:** Accepted
@@ -220,6 +249,7 @@ The bridge needs to be reachable by external call providers, but admin and confi
 - Do not expose diagnostics publicly.
 - Do not log secrets or PINs.
 - Public route documentation must be maintained as part of each bridge mode.
+- Twilio-side public routes and build instructions are documented in `docs/TWILIO_DEVELOPMENT.md`.
 
 ## Decision 012: Add latency instrumentation as a first-class feature
 
@@ -247,6 +277,10 @@ Track at least:
 - call ended
 
 Optional Home Assistant sensors can expose recent latency metrics.
+
+### Implementation note
+
+The bridge now emits structured `TIMING` logs for the prototype call path. Home Assistant diagnostics and sensors remain future work.
 
 ## Decision 013: Avoid writing conversation text to disk in the primary path
 
@@ -280,25 +314,44 @@ Voice providers should not become the source of truth for house identity, author
 - Provider metadata may be used as input, but authorization decisions remain local.
 - ElevenLabs Agent mode, if used, must receive only the session metadata it needs.
 
+## Decision 015: Keep Conversation Relay mode text-only in the bridge
+
+**Status:** Accepted
+
+Conversation Relay mode should not invoke local Whisper, Home Assistant TTS, local generated audio files, or `/audio/*` playback in the primary path.
+
+### Rationale
+
+The purpose of the v2 prototype is to prove a text-only bridge. Keeping Conversation Relay separate from the v1 audio path prevents the prototype from inheriting the latency, storage, cleanup, and public media-serving problems that v2.0.0 is intended to avoid.
+
+### Consequences
+
+- The websocket handler sends final transcript text to Home Assistant Conversation.
+- The websocket handler returns Home Assistant response text to Conversation Relay as text messages.
+- Generated speech is delegated to Twilio/ElevenLabs.
+- Conversation Relay mode must not write caller audio, generated TTS audio, transient transcripts, or transient response text to disk.
+- Gather mode may continue using local recording, transcription, generated audio, and `/audio/*` as fallback behavior.
+
 ## Open questions
 
-1. What exact Twilio Conversation Relay attributes are required to select ElevenLabs TTS and the desired Elspeth voice?
+1. What exact ElevenLabs voice ID should be used for the desired Elspeth voice in Conversation Relay?
 2. Does the active Twilio account support Conversation Relay and ElevenLabs TTS provider configuration?
 3. Can Conversation Relay provide the desired interruption/barge-in behavior?
 4. Can ElevenLabs Agent integration preserve Home Assistant as the source of truth for conversation and service execution?
 5. Should the HACS integration and add-on remain in the same repository or eventually split?
 6. What entities should the HACS integration expose by default?
 7. How should secrets be shared between the HACS integration and bridge service/add-on?
+8. Should Conversation Relay websocket signature validation be implemented before broader testing or before production release?
 
 ## Immediate implementation plan
 
-1. Add `voice_bridge_mode` configuration with `gather` as the default.
-2. Add a Conversation Relay websocket endpoint.
-3. Build a fixed-response Conversation Relay prototype.
-4. Wire transcript text to Home Assistant Conversation.
-5. Return Home Assistant response text to Conversation Relay.
-6. Validate ElevenLabs TTS configuration through Twilio.
-7. Add latency instrumentation.
-8. Add initial HACS integration skeleton.
-9. Move configuration and diagnostics into the HACS integration.
-10. Keep the current add-on as the bridge runtime until an integration-only deployment is proven safe.
+1. Add `voice_bridge_mode` configuration with `gather` as the default. **Done.**
+2. Add a Conversation Relay websocket endpoint. **Done.**
+3. Build a text bridge Conversation Relay prototype. **Done.**
+4. Wire transcript text to Home Assistant Conversation. **Done.**
+5. Return Home Assistant response text to Conversation Relay. **Done.**
+6. Validate ElevenLabs TTS configuration through Twilio. **Next.**
+7. Add latency instrumentation. **Done for logs; diagnostics remain future work.**
+8. Add initial HACS integration skeleton. **Done.**
+9. Move configuration and diagnostics into the HACS integration. **Future.**
+10. Keep the current add-on as the bridge runtime until an integration-only deployment is proven safe. **Current approach.**

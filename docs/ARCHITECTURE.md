@@ -8,6 +8,23 @@ The current implementation is a Home Assistant add-on that receives Twilio calls
 
 The v2.0.0 target changes the project from an audio-processing add-on into a **text-only voice bridge** between an external phone/speech provider and Home Assistant.
 
+## Current implementation status
+
+As of the first v2.0.0 prototype phase, the repository includes:
+
+- `voice_bridge_mode` configuration with `gather` as the default.
+- Optional `conversation_relay` and reserved `elevenlabs_agent` bridge modes.
+- `pin_mode` configuration with DTMF as the default and the legacy spoken-PIN recording path still available.
+- Conversation Relay configuration placeholders for TTS provider, voice, transcription provider, and language.
+- A Conversation Relay TwiML path after successful PIN validation.
+- A public `/conversation_relay` websocket endpoint for Conversation Relay events.
+- Shared Home Assistant Conversation request handling for Gather and Conversation Relay paths.
+- Structured timing logs for inbound calls, PIN flow, bridge selection, Conversation Relay connection, transcript handling, Home Assistant request/response, outbound response text, and call end.
+- An initial HACS custom integration skeleton under `custom_components/twilio_voice_assistant/`.
+- Twilio-side development notes in `docs/TWILIO_DEVELOPMENT.md`.
+
+The Conversation Relay path is still experimental. It is ready for account-level validation with Twilio Conversation Relay and ElevenLabs TTS, but it should not yet be treated as a production replacement for `gather`.
+
 ## v2.0.0 goals
 
 1. Use **ElevenLabs for text-to-speech**.
@@ -150,6 +167,7 @@ Expected status in v2.0.0:
 
 - Supported as legacy fallback.
 - Not the preferred architecture.
+- Current default mode to avoid breaking existing deployments.
 
 ### Mode 2: `conversation_relay`
 
@@ -164,6 +182,9 @@ Use for:
 Expected status in v2.0.0:
 
 - Primary target if ElevenLabs TTS control is sufficient.
+- Current experimental prototype behind `voice_bridge_mode: conversation_relay`.
+- Uses Twilio-hosted STT and returns text token messages for Twilio/ElevenLabs TTS.
+- Does not generate local TTS audio or write caller audio in the Conversation Relay path.
 
 ### Mode 3: `elevenlabs_agent`
 
@@ -179,6 +200,7 @@ Expected status in v2.0.0:
 
 - Candidate if Conversation Relay cannot provide the desired ElevenLabs voice behavior.
 - Requires careful design so Home Assistant remains the house-control source of truth.
+- Current mode value is reserved, but the call path is not implemented yet.
 
 ## HACS-compliant integration goal
 
@@ -204,6 +226,16 @@ custom_components/twilio_voice_assistant/sensor.py
 custom_components/twilio_voice_assistant/services.yaml
 custom_components/twilio_voice_assistant/translations/en.json
 README.md
+hacs.json
+```
+
+The current skeleton includes:
+
+```text
+custom_components/twilio_voice_assistant/__init__.py
+custom_components/twilio_voice_assistant/manifest.json
+custom_components/twilio_voice_assistant/config_flow.py
+custom_components/twilio_voice_assistant/const.py
 hacs.json
 ```
 
@@ -273,20 +305,32 @@ caller_id_mapping: enabled
 latency_logging: true
 ```
 
+Implemented add-on configuration fields:
+
+```yaml
+voice_bridge_mode: gather | conversation_relay | elevenlabs_agent
+conversation_relay_tts_provider: ElevenLabs
+conversation_relay_voice: ""
+conversation_relay_transcription_provider: Deepgram
+conversation_relay_language: en-US
+pin_mode: dtmf | speech
+```
+
 Additional provider-specific fields may be required after validating Twilio Conversation Relay and ElevenLabs Agent APIs.
 
 ## Migration strategy
 
-1. Preserve v1.x behavior as `gather` mode.
-2. Add `conversation_relay` mode behind a feature flag.
-3. Build a minimal text echo prototype.
-4. Wire transcript text into Home Assistant Conversation.
-5. Return Home Assistant response text to the external voice layer.
-6. Add ElevenLabs TTS configuration.
-7. Add latency logs and diagnostics.
-8. Introduce HACS custom integration structure.
-9. Move setup and monitoring into the HACS integration.
-10. Keep the add-on or bridge service only for public webhook/websocket duties if still required.
+1. Preserve v1.x behavior as `gather` mode. **Implemented.**
+2. Add `conversation_relay` mode behind a feature flag. **Implemented.**
+3. Build a minimal text bridge prototype. **Implemented for final transcript to Home Assistant response.**
+4. Wire transcript text into Home Assistant Conversation. **Implemented.**
+5. Return Home Assistant response text to the external voice layer. **Implemented through Conversation Relay text messages.**
+6. Add ElevenLabs TTS configuration. **Implemented as Conversation Relay provider/voice configuration placeholders.**
+7. Add latency logs and diagnostics. **Timing logs implemented; diagnostics remain future work.**
+8. Introduce HACS custom integration structure. **Initial skeleton implemented.**
+9. Validate Conversation Relay and ElevenLabs behavior against the active Twilio account. **Next.**
+10. Move setup and monitoring into the HACS integration. **Future.**
+11. Keep the add-on or bridge service only for public webhook/websocket duties if still required. **Future.**
 
 ## Release definition for v2.0.0
 

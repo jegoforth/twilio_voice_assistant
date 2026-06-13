@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Form, Request
+from fastapi import FastAPI, Form, Request, WebSocket, WebSocketDisconnect
 from fastapi import HTTPException
 from fastapi.responses import Response, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
@@ -11,7 +11,9 @@ import re
 import os
 import json
 import traceback
+import time
 from contextlib import asynccontextmanager
+from html import escape
 from urllib.parse import quote
 
 app = FastAPI()
@@ -30,7 +32,33 @@ TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID")
 TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN")
 SUPERVISOR_TOKEN = os.getenv("SUPERVISOR_TOKEN")
 PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "").rstrip("/")
+if PUBLIC_BASE_URL and not PUBLIC_BASE_URL.startswith(("http://", "https://")):
+    PUBLIC_BASE_URL = f"https://{PUBLIC_BASE_URL}"
 DEBUG = os.getenv("DEBUG", "false").lower() == "true"
+VOICE_BRIDGE_MODE = os.getenv("VOICE_BRIDGE_MODE", "gather").strip().lower()
+CONVERSATION_RELAY_TTS_PROVIDER = os.getenv(
+    "CONVERSATION_RELAY_TTS_PROVIDER", "ElevenLabs"
+).strip()
+CONVERSATION_RELAY_VOICE = os.getenv("CONVERSATION_RELAY_VOICE", "").strip()
+CONVERSATION_RELAY_TRANSCRIPTION_PROVIDER = os.getenv(
+    "CONVERSATION_RELAY_TRANSCRIPTION_PROVIDER", "Deepgram"
+).strip()
+CONVERSATION_RELAY_LANGUAGE = os.getenv(
+    "CONVERSATION_RELAY_LANGUAGE", "en-US"
+).strip()
+PIN_MODE = os.getenv("PIN_MODE", "dtmf").strip().lower()
+
+SUPPORTED_VOICE_BRIDGE_MODES = {
+    "gather",
+    "conversation_relay",
+    "elevenlabs_agent",
+}
+if VOICE_BRIDGE_MODE not in SUPPORTED_VOICE_BRIDGE_MODES:
+    print(
+        "WARNING: Unsupported voice_bridge_mode "
+        f"{VOICE_BRIDGE_MODE!r}; falling back to 'gather'"
+    )
+    VOICE_BRIDGE_MODE = "gather"
 
 # Validate required credentials
 required_vars = {
@@ -48,6 +76,21 @@ if missing_vars:
 
 PIN_MAP_FILE = f"{DATA_DIR}/pin_map.json"
 SETTINGS_FILE = f"{DATA_DIR}/settings.json"
+
+
+def log_timing(event: str, **fields):
+    """Emit structured timing logs without secrets, PINs, or transcript text."""
+    payload = {
+        "event": event,
+        "ts": round(time.time(), 3),
+        **fields,
+    }
+    print("TIMING " + json.dumps(payload, sort_keys=True))
+
+
+def debug_log(event: str, **fields):
+    if DEBUG:
+        print("DEBUG " + json.dumps({"event": event, **fields}, sort_keys=True))
 
 
 class PinRequest(BaseModel):
@@ -330,6 +373,15 @@ def public_audio_url(filename: str) -> str:
     return f"{PUBLIC_BASE_URL}/audio/{filename}"
 
 
+def public_websocket_url(path: str) -> str:
+    base = PUBLIC_BASE_URL
+    if base.startswith("https://"):
+        base = "wss://" + base[len("https://"):]
+    elif base.startswith("http://"):
+        base = "ws://" + base[len("http://"):]
+    return f"{base}{path}"
+
+
 def safe_redirect_to_session(user_id: str, user_name: str | None, message: str):
     encoded_user_id = quote(user_id)
     encoded_user_name = quote(user_name or user_id)
@@ -362,6 +414,38 @@ def record_command_twiml(encoded_user_id: str, encoded_user_name: str) -> str:
         />
         <Say>I did not hear anything. Goodbye.</Say>
         <Hangup/>
+    """
+
+
+def conversation_relay_twiml(user_id: str, user_name: str) -> str:
+    websocket_url = public_websocket_url("/conversation_relay")
+    attrs = {
+        "url": websocket_url,
+        "welcomeGreeting": f"Hello {user_name}. What would you like to do?",
+        "language": CONVERSATION_RELAY_LANGUAGE,
+        "ttsProvider": CONVERSATION_RELAY_TTS_PROVIDER,
+        "transcriptionProvider": CONVERSATION_RELAY_TRANSCRIPTION_PROVIDER,
+    }
+    if CONVERSATION_RELAY_VOICE:
+        attrs["voice"] = CONVERSATION_RELAY_VOICE
+
+    attr_text = " ".join(
+        f'{name}="{escape(value, quote=True)}"'
+        for name, value in attrs.items()
+        if value
+    )
+    conversation_id = f"twilio_{user_id}"
+
+    return f"""
+    <Response>
+        <Connect action="/conversation_relay/status">
+            <ConversationRelay {attr_text}>
+                <Parameter name="user_id" value="{escape(user_id, quote=True)}"/>
+                <Parameter name="user_name" value="{escape(user_name, quote=True)}"/>
+                <Parameter name="conversation_id" value="{escape(conversation_id, quote=True)}"/>
+            </ConversationRelay>
+        </Connect>
+    </Response>
     """
 
 
@@ -544,7 +628,84 @@ def is_end_call_phrase(text: str) -> bool:
     return command.startswith(starts_with_phrases)
 
 
-async def handle_pin_digits(digits: str):
+async def send_to_home_assistant_conversation(
+    text: str,
+    user_id: str,
+    conversation_id: str | None = None,
+):
+    """Send text to Home Assistant Conversation and return spoken reply text."""
+    ha_url = "http://supervisor/core/api/conversation/process"
+    headers = {
+        "Authorization": f"Bearer {SUPERVISOR_TOKEN}",
+        "Content-Type": "application/json",
+    }
+
+    settings = load_settings()
+    payload = {
+        "text": text,
+        "conversation_id": conversation_id or f"twilio_{user_id}",
+        "language": "en",
+    }
+    if settings.get("conversation_agent_id"):
+        payload["agent_id"] = settings["conversation_agent_id"]
+
+    log_timing(
+        "home_assistant_conversation_request_started",
+        user_id=user_id,
+        conversation_id=payload["conversation_id"],
+        text_length=len(text),
+    )
+    debug_log(
+        "home_assistant_conversation_request",
+        user_id=user_id,
+        conversation_id=payload["conversation_id"],
+        has_agent_id=bool(payload.get("agent_id")),
+        text_length=len(text),
+    )
+
+    ha_raw = requests.post(
+        ha_url,
+        json=payload,
+        headers=headers,
+        timeout=30,
+    )
+
+    log_timing(
+        "home_assistant_conversation_response_received",
+        user_id=user_id,
+        conversation_id=payload["conversation_id"],
+        status_code=ha_raw.status_code,
+    )
+    debug_log(
+        "home_assistant_conversation_response",
+        status_code=ha_raw.status_code,
+        content_type=ha_raw.headers.get("content-type"),
+    )
+
+    if ha_raw.status_code < 200 or ha_raw.status_code >= 300:
+        raise RuntimeError(f"Home Assistant returned {ha_raw.status_code}")
+
+    try:
+        ha_response = ha_raw.json()
+    except Exception as exc:
+        raise RuntimeError("Home Assistant did not return valid JSON") from exc
+
+    reply = (
+        ha_response
+        .get("response", {})
+        .get("speech", {})
+        .get("plain", {})
+        .get("speech")
+    )
+
+    if not reply:
+        debug_log("home_assistant_unexpected_response_shape")
+        reply = "I heard you, but Home Assistant did not provide a spoken response."
+
+    return reply
+
+
+async def handle_pin_digits(digits: str, call_sid: str | None = None):
     global PIN_MAP
     PIN_MAP = load_pin_map()
     digits = normalize_digits(digits)
@@ -563,6 +724,12 @@ async def handle_pin_digits(digits: str):
         user_name = pin_entry_user_name(pin_entry, user_map)
         encoded_user_id = quote(user_id)
         encoded_user_name = quote(user_name)
+        log_timing(
+            "pin_accepted",
+            call_sid=call_sid,
+            user_id=user_id,
+            bridge_mode=VOICE_BRIDGE_MODE,
+        )
         return twiml_response(f"""
         <Response>
             <Say>Thank you. Connecting you now.</Say>
@@ -1215,6 +1382,20 @@ async def incoming_call(
     To: str = Form(None),
     CallSid: str = Form(None),
 ):
+    log_timing("inbound_call_received", call_sid=CallSid, bridge_mode=VOICE_BRIDGE_MODE)
+    if PIN_MODE == "dtmf":
+        log_timing("pin_prompt_sent", call_sid=CallSid, pin_mode="dtmf")
+        return twiml_response("""
+        <Response>
+            <Gather input="dtmf" numDigits="4" timeout="10" action="/check_pin" method="POST">
+                <Say>Please enter your four digit PIN.</Say>
+            </Gather>
+            <Say>I did not receive a PIN. Goodbye.</Say>
+            <Hangup/>
+        </Response>
+        """)
+
+    log_timing("pin_prompt_sent", call_sid=CallSid, pin_mode="speech")
     return twiml_response("""
     <Response>
         <Say>Please say your four digit PIN slowly, one digit at a time, after the beep.</Say>
@@ -1232,13 +1413,25 @@ async def incoming_call(
 
 @app.post("/check_pin")
 async def check_pin(
-    RecordingUrl: str = Form(...),
-    CallSid: str = Form(...),
+    RecordingUrl: str | None = Form(None),
+    CallSid: str | None = Form(None),
+    Digits: str | None = Form(None),
 ):
     global PIN_MAP
     PIN_MAP = load_pin_map()
     
     try:
+        if Digits:
+            return await handle_pin_digits(Digits, call_sid=CallSid)
+
+        if not RecordingUrl or not CallSid:
+            return twiml_response("""
+            <Response>
+                <Say>Sorry, I did not receive your PIN. Please try again.</Say>
+                <Redirect>/incoming_call</Redirect>
+            </Response>
+            """)
+
         audio_path = f"/tmp/{CallSid}_pin.mp3"
 
         if not download_twilio_recording(RecordingUrl, audio_path):
@@ -1258,7 +1451,7 @@ async def check_pin(
 
         if DEBUG:
             print("PIN spoken text:", spoken_text)
-        return await handle_pin_digits(spoken_text)
+        return await handle_pin_digits(spoken_text, call_sid=CallSid)
 
     except Exception:
         print("Exception in check_pin:")
@@ -1290,6 +1483,28 @@ async def start_session(
         user_name = user_name or user_id
         encoded_user_id = quote(user_id)
         encoded_user_name = quote(user_name)
+        log_timing(
+            "bridge_mode_selected",
+            bridge_mode=VOICE_BRIDGE_MODE,
+            user_id=user_id,
+        )
+
+        if VOICE_BRIDGE_MODE == "conversation_relay":
+            log_timing(
+                "conversation_relay_twiml_returned",
+                user_id=user_id,
+                tts_provider=CONVERSATION_RELAY_TTS_PROVIDER,
+                transcription_provider=CONVERSATION_RELAY_TRANSCRIPTION_PROVIDER,
+                language=CONVERSATION_RELAY_LANGUAGE,
+                has_voice=bool(CONVERSATION_RELAY_VOICE),
+            )
+            return twiml_response(conversation_relay_twiml(user_id, user_name))
+
+        if VOICE_BRIDGE_MODE == "elevenlabs_agent":
+            print("WARNING: elevenlabs_agent mode is configured but not implemented yet.")
+            return polite_hangup(
+                "Sorry, ElevenLabs Agent mode is not available yet. Goodbye."
+            )
 
         prompt_audio = await tts_to_audio(
             f"Hello {user_name}. What would you like to do?",
@@ -1366,63 +1581,16 @@ async def process_command(
         if is_end_call_phrase(spoken_text):
             return polite_hangup("Understood. Goodbye.")
 
-        ha_url = "http://supervisor/core/api/conversation/process"
-        headers = {
-            "Authorization": f"Bearer {SUPERVISOR_TOKEN}",
-            "Content-Type": "application/json",
-        }
-
-        settings = load_settings()
-        payload = {
-            "text": spoken_text,
-            "conversation_id": f"twilio_{user_id}",
-            "language": "en",
-        }
-        if settings.get("conversation_agent_id"):
-            payload["agent_id"] = settings["conversation_agent_id"]
-
-        print("Sending to Home Assistant:", payload)
-
-        ha_raw = requests.post(
-            ha_url,
-            json=payload,
-            headers=headers,
-            timeout=30,
-        )
-
-        print("HA status:", ha_raw.status_code)
-        print("HA content-type:", ha_raw.headers.get("content-type"))
-        print("HA body:", ha_raw.text[:1000])
-
-        if ha_raw.status_code < 200 or ha_raw.status_code >= 300:
+        try:
+            reply = await send_to_home_assistant_conversation(spoken_text, user_id)
+        except Exception:
+            print("Home Assistant Conversation request failed.")
+            traceback.print_exc()
             return safe_redirect_to_session(
                 user_id,
                 user_name,
                 "Sorry, Home Assistant returned an error."
             )
-
-        try:
-            ha_response = ha_raw.json()
-        except Exception:
-            print("Home Assistant did not return valid JSON.")
-            traceback.print_exc()
-            return safe_redirect_to_session(
-                user_id,
-                user_name,
-                "Sorry, Home Assistant did not return a valid response."
-            )
-
-        reply = (
-            ha_response
-            .get("response", {})
-            .get("speech", {})
-            .get("plain", {})
-            .get("speech")
-        )
-
-        if not reply:
-            print("Unexpected HA response shape:", ha_response)
-            reply = "I heard you, but Home Assistant did not provide a spoken response."
 
         print("HA reply:", reply)
 
@@ -1446,6 +1614,149 @@ async def process_command(
             user_name,
             "Sorry, something went wrong processing your request."
         )
+
+
+@app.websocket("/conversation_relay")
+async def conversation_relay_websocket(websocket: WebSocket):
+    await websocket.accept()
+    log_timing("websocket_connected", bridge_mode="conversation_relay")
+
+    user_id = "unknown"
+    user_name = "unknown"
+    conversation_id = None
+
+    try:
+        while True:
+            raw_message = await websocket.receive_text()
+            try:
+                message = json.loads(raw_message)
+            except json.JSONDecodeError:
+                debug_log("conversation_relay_invalid_json")
+                continue
+
+            message_type = message.get("type", "unknown")
+            debug_log("conversation_relay_message_received", message_type=message_type)
+
+            if message_type == "setup":
+                custom_parameters = message.get("customParameters") or {}
+                user_id = custom_parameters.get("user_id") or user_id
+                user_name = custom_parameters.get("user_name") or user_name
+                conversation_id = (
+                    custom_parameters.get("conversation_id")
+                    or f"twilio_{user_id}"
+                )
+                debug_log(
+                    "conversation_relay_setup",
+                    user_id=user_id,
+                    has_conversation_id=bool(conversation_id),
+                )
+                continue
+
+            if message_type == "prompt":
+                # Twilio Conversation Relay currently sends caller transcripts as
+                # prompt messages with voicePrompt and last fields. Keep this
+                # parser narrow and logged because the prototype schema may evolve.
+                transcript = (message.get("voicePrompt") or "").strip()
+                is_final = bool(message.get("last"))
+                if not is_final:
+                    debug_log(
+                        "conversation_relay_partial_transcript",
+                        text_length=len(transcript),
+                    )
+                    continue
+
+                log_timing(
+                    "transcript_text_received",
+                    user_id=user_id,
+                    conversation_id=conversation_id,
+                    text_length=len(transcript),
+                )
+
+                if not transcript:
+                    continue
+
+                if is_end_call_phrase(transcript):
+                    await websocket.send_text(json.dumps({
+                        "type": "text",
+                        "token": "Understood. Goodbye.",
+                        "last": True,
+                    }))
+                    await websocket.send_text(json.dumps({
+                        "type": "end",
+                        "handoffData": json.dumps({"reason": "caller_ended_call"}),
+                    }))
+                    log_timing("response_text_sent_to_conversation_relay", user_id=user_id)
+                    continue
+
+                try:
+                    reply = await send_to_home_assistant_conversation(
+                        transcript,
+                        user_id,
+                        conversation_id=conversation_id,
+                    )
+                except Exception:
+                    print("Conversation Relay Home Assistant request failed.")
+                    traceback.print_exc()
+                    reply = "Sorry, Home Assistant returned an error."
+
+                await websocket.send_text(json.dumps({
+                    "type": "text",
+                    "token": reply,
+                    "last": True,
+                    "lang": CONVERSATION_RELAY_LANGUAGE,
+                }))
+                log_timing(
+                    "response_text_sent_to_conversation_relay",
+                    user_id=user_id,
+                    conversation_id=conversation_id,
+                    text_length=len(reply),
+                )
+                continue
+
+            if message_type == "error":
+                print("Conversation Relay error message received.")
+                continue
+
+            if message_type in {"dtmf", "interrupt"}:
+                continue
+
+            debug_log("conversation_relay_unhandled_message", message_type=message_type)
+
+    except WebSocketDisconnect:
+        log_timing(
+            "call_ended",
+            user_id=user_id,
+            conversation_id=conversation_id,
+            reason="websocket_disconnect",
+        )
+    except Exception:
+        print("Exception in Conversation Relay websocket:")
+        traceback.print_exc()
+        log_timing(
+            "call_ended",
+            user_id=user_id,
+            conversation_id=conversation_id,
+            reason="websocket_error",
+        )
+
+
+@app.post("/conversation_relay/status")
+async def conversation_relay_status(
+    CallSid: str | None = Form(None),
+    SessionId: str | None = Form(None),
+    SessionStatus: str | None = Form(None),
+):
+    log_timing(
+        "call_ended",
+        call_sid=CallSid,
+        session_id=SessionId,
+        session_status=SessionStatus,
+    )
+    return twiml_response("""
+    <Response>
+        <Hangup/>
+    </Response>
+    """)
 
 
 @app.get("/admin/debug")

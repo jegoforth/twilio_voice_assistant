@@ -30,6 +30,22 @@ public_base_url = str(config.get('public_base_url', '')).strip().rstrip('/')
 if public_base_url and not public_base_url.startswith(('http://', 'https://')):
     public_base_url = f'https://{public_base_url}'
 os.environ['PUBLIC_BASE_URL'] = public_base_url
+os.environ['VOICE_BRIDGE_MODE'] = str(
+    config.get('voice_bridge_mode', 'gather')
+).strip().lower()
+os.environ['CONVERSATION_RELAY_TTS_PROVIDER'] = str(
+    config.get('conversation_relay_tts_provider', 'ElevenLabs')
+).strip()
+os.environ['CONVERSATION_RELAY_VOICE'] = str(
+    config.get('conversation_relay_voice', '')
+).strip()
+os.environ['CONVERSATION_RELAY_TRANSCRIPTION_PROVIDER'] = str(
+    config.get('conversation_relay_transcription_provider', 'Deepgram')
+).strip()
+os.environ['CONVERSATION_RELAY_LANGUAGE'] = str(
+    config.get('conversation_relay_language', 'en-US')
+).strip()
+os.environ['PIN_MODE'] = str(config.get('pin_mode', 'dtmf')).strip().lower()
 
 # Handle pin_map - could be dict or JSON string
 pin_map = config.get('pin_map', {})

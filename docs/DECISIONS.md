@@ -1,6 +1,16 @@
 # Twilio Voice Assistant Decisions
 
-This document records the current product and architecture decisions for the v2.0.0 target architecture.
+This document records accepted decisions, proposed decisions, implementation notes, questions, risks, and challenges for the v2.0.0 target architecture.
+
+## Document usage
+
+`docs/ARCHITECTURE.md` is the stable architecture authority for this project. Codex should read it before implementation work and treat it as guardrails.
+
+This file is the right place for accepted decisions, proposed decisions, implementation notes, open questions, risks, and challenges discovered during development.
+
+Codex may update this file to communicate activity, questions, tradeoffs, and implementation discoveries. Codex should not silently change the architectural direction in `docs/ARCHITECTURE.md`; proposed architectural changes should be recorded here first for review.
+
+Focused activity logs and test notes may live in separate markdown files, such as `docs/TWILIO_DEVELOPMENT.md` or future testing documents.
 
 ## Status labels
 
@@ -17,18 +27,6 @@ The next targeted architecture is named **v2.0.0**.
 
 v2.0.0 represents a major architectural change from an audio-processing add-on to a text-only voice bridge with external STT/TTS.
 
-### Rationale
-
-The current implementation moves audio into and out of the local environment. This creates latency, file handling, codec, storage, cleanup, public URL, and troubleshooting overhead.
-
-A major version target is appropriate because the primary call path, configuration model, and long-term packaging strategy are changing.
-
-### Consequences
-
-- v1.x remains the compatibility line.
-- v2.0.0 documentation should describe the desired architecture, even before all implementation work is complete.
-- Migration notes will be required before an actual v2.0.0 release.
-
 ## Decision 002: Make the primary bridge text-only
 
 **Status:** Accepted
@@ -40,11 +38,7 @@ External voice layer -> transcript text -> bridge -> Home Assistant Conversation
 Home Assistant Conversation -> response text -> bridge -> external voice layer
 ```
 
-### Rationale
-
-Text is faster and simpler to pass across the network than generated audio files. It also avoids local audio storage, Home Assistant media-source routing, and public generated-audio routes.
-
-### Consequences
+Consequences:
 
 - Local WAV/M4A/MP3 processing should be removed from the primary path.
 - Existing audio file paths may remain only as fallback behavior.
@@ -56,11 +50,7 @@ Text is faster and simpler to pass across the network than generated audio files
 
 v2.0.0 will use **ElevenLabs for text-to-speech**.
 
-### Rationale
-
-The Elspeth experience depends heavily on voice quality, personality, and consistency. ElevenLabs is the preferred TTS provider for that experience.
-
-### Consequences
+Consequences:
 
 - Twilio-only TTS is not the preferred final experience.
 - If Twilio Conversation Relay can provide ElevenLabs TTS with the necessary voice control, it is the preferred v2 path.
@@ -72,30 +62,12 @@ The Elspeth experience depends heavily on voice quality, personality, and consis
 
 The first v2.0.0 prototype should test Twilio Conversation Relay as the text-only bridge layer, with ElevenLabs TTS configured if supported by the active Twilio account/API.
 
-### Rationale
-
-Conversation Relay appears to match the desired model closely:
-
-```text
-Twilio handles phone call, STT, and TTS.
-Bridge handles text events.
-Home Assistant Conversation remains the brain.
-```
-
-This keeps Home Assistant in control of house reasoning and service execution while minimizing local audio handling.
-
-### Consequences
-
-- The project needs a websocket endpoint for Conversation Relay events.
-- The bridge must parse transcript events and send response text events.
-- The exact Twilio markup and provider/voice settings must be validated during implementation.
-
-### Implementation note
+Implementation note:
 
 The first prototype now includes:
 
 - `voice_bridge_mode: conversation_relay`.
-- `<Connect><ConversationRelay>` TwiML returned after successful PIN validation.
+- `<Connect><ConversationRelay>` TwiML returned after successful authentication.
 - A `/conversation_relay` websocket endpoint.
 - Final transcript routing to Home Assistant Conversation.
 - Text token responses back to Conversation Relay.
@@ -109,13 +81,7 @@ The remaining validation is account-level Twilio behavior: Conversation Relay av
 
 ElevenLabs Agent with Twilio integration should be investigated as a secondary v2.0.0 path.
 
-### Rationale
-
-ElevenLabs Agent integration may provide the smoothest realtime voice experience and the best ElevenLabs voice behavior. However, it may also move the main agent loop away from Home Assistant.
-
-The desired architecture keeps Home Assistant Conversation as the source of truth for house context, tools, and service execution.
-
-### Consequences
+Consequences:
 
 - ElevenLabs Agents should not replace the Home Assistant conversation brain unless that tradeoff is explicitly accepted later.
 - If used, ElevenLabs should call back into the bridge through tools/endpoints that send text to Home Assistant and return text results.
@@ -127,38 +93,31 @@ The desired architecture keeps Home Assistant Conversation as the source of trut
 
 The current Gather-based implementation should remain available as a fallback while v2.0.0 is developed.
 
-### Rationale
+Consequences:
 
-The existing app works as a baseline and provides a useful recovery path while Conversation Relay and ElevenLabs Agent modes are tested.
-
-### Consequences
-
-- Add a mode setting such as:
-
-```yaml
-voice_bridge_mode: gather | conversation_relay | elevenlabs_agent
-```
-
+- `voice_bridge_mode` should support `gather | conversation_relay | elevenlabs_agent`.
 - `gather` should be treated as compatibility mode.
 - New work should avoid deepening dependency on generated audio files except for fallback support.
 - `gather` remains the default `voice_bridge_mode` in add-on configuration.
 
-## Decision 007: Prefer DTMF for PIN entry
+## Decision 007: Keep PIN support as fallback/legacy authentication
 
 **Status:** Accepted
 
-PIN entry should use DTMF where possible instead of speech recognition.
+PIN authentication remains supported, but it is no longer the preferred v2 authentication path.
 
-### Rationale
+Rationale:
 
-PINs are structured numeric input. DTMF is faster, less ambiguous, and less likely to fail than speech-based PIN recognition.
+PINs are useful for fallback, unknown caller handling, and compatibility with the existing v1 flow. However, PIN entry adds latency and creates an extra interaction before the assistant can begin.
 
-### Consequences
+Known household callers should normally be identified by caller whitelist mapping and routed directly into the selected bridge mode.
 
-- The PIN prompt can use a short spoken prompt.
-- PIN validation can happen before the realtime voice bridge starts.
-- Speech-based PIN entry can remain an optional fallback if needed.
-- `pin_mode` now defaults to `dtmf`; `speech` keeps the legacy recording-based PIN path available.
+Consequences:
+
+- `pin_mode` may support `dtmf` and `speech`, with DTMF preferred when PIN fallback is used.
+- PIN fallback may be used for unknown callers when `unknown_caller_policy: pin_fallback` is configured.
+- Speech-based PIN entry can remain as a legacy fallback if needed.
+- PIN values must not be logged.
 
 ## Decision 008: Keep Home Assistant Conversation as the assistant brain
 
@@ -166,11 +125,7 @@ PINs are structured numeric input. DTMF is faster, less ambiguous, and less like
 
 Home Assistant Conversation remains the core brain for v2.0.0.
 
-### Rationale
-
-The project's value comes from connecting remote phone access to the same Home Assistant assistant context, memory, tools, users, and service execution that power the in-home Elspeth experience.
-
-### Consequences
+Consequences:
 
 - The bridge should send user transcript text into Home Assistant Conversation.
 - Home Assistant response text should be returned to the voice layer without local TTS generation.
@@ -182,23 +137,13 @@ The project's value comes from connecting remote phone access to the same Home A
 
 The project should evolve toward a **full HACS-compliant Home Assistant custom integration**.
 
-### Rationale
-
-A HACS integration provides a more native Home Assistant installation and configuration experience than an add-on alone. It also allows the project to expose entities, diagnostics, repairs, config flows, options flows, and services in a Home Assistant-native way.
-
-### Consequences
-
-- The target integration should live under:
+The target integration should live under:
 
 ```text
 custom_components/twilio_voice_assistant/
 ```
 
-- The repository should include HACS metadata such as `hacs.json` when ready.
-- The integration should include a valid `manifest.json` with required Home Assistant and HACS fields.
-- The project may still need an add-on or external bridge service for public webhook and websocket endpoints.
-
-### Implementation note
+Implementation note:
 
 The repository now contains an initial skeleton:
 
@@ -218,12 +163,6 @@ The skeleton establishes repository direction only. It does not yet replace the 
 
 The HACS integration and the public bridge service should be treated as separate responsibilities, even if they live in the same repository during development.
 
-### Rationale
-
-A Home Assistant custom integration is ideal for configuration, diagnostics, entities, and services. A separately packaged bridge service or add-on may still be the safest place to host public Twilio/ElevenLabs webhook and websocket endpoints.
-
-### Consequences
-
 Possible v2.0.0 deployment shapes:
 
 1. HACS integration plus Home Assistant add-on.
@@ -238,16 +177,12 @@ The safest near-term target is HACS integration plus bridge service/add-on.
 
 Only the routes required by Twilio or ElevenLabs should be exposed publicly.
 
-### Rationale
-
-The bridge needs to be reachable by external call providers, but admin and configuration functions must stay private.
-
-### Consequences
+Consequences:
 
 - Do not expose admin pages publicly.
 - Do not expose Home Assistant internal APIs publicly.
 - Do not expose diagnostics publicly.
-- Do not log secrets or PINs.
+- Do not log secrets, PINs, full caller numbers, full transcripts, or full Home Assistant responses.
 - Public route documentation must be maintained as part of each bridge mode.
 - Twilio-side public routes and build instructions are documented in `docs/TWILIO_DEVELOPMENT.md`.
 
@@ -257,17 +192,14 @@ The bridge needs to be reachable by external call providers, but admin and confi
 
 v2.0.0 should track timing across the complete call path.
 
-### Rationale
-
-The main product goal is a faster, more natural phone-based assistant. Latency needs to be visible in logs and diagnostics so changes can be measured instead of guessed.
-
-### Consequences
-
 Track at least:
 
 - inbound call received
-- PIN prompt sent
-- PIN accepted
+- caller whitelist matched
+- unknown caller rejected
+- unknown caller PIN fallback selected
+- PIN prompt sent, if fallback/legacy PIN auth is used
+- PIN accepted, if fallback/legacy PIN auth is used
 - session created
 - voice layer connected
 - transcript received
@@ -276,9 +208,7 @@ Track at least:
 - response text sent to voice layer
 - call ended
 
-Optional Home Assistant sensors can expose recent latency metrics.
-
-### Implementation note
+Implementation note:
 
 The bridge now emits structured `TIMING` logs for the prototype call path. Home Assistant diagnostics and sensors remain future work.
 
@@ -288,11 +218,7 @@ The bridge now emits structured `TIMING` logs for the prototype call path. Home 
 
 The primary call path should not write transient transcript or response text to disk.
 
-### Rationale
-
-The v2.0.0 bridge should be fast and privacy-conscious. Transient conversation text should move through memory and logs should be configurable.
-
-### Consequences
+Consequences:
 
 - Debug logging should avoid full transcript capture by default.
 - Diagnostics may include timings and state, but not necessarily full conversation content.
@@ -304,11 +230,7 @@ The v2.0.0 bridge should be fast and privacy-conscious. Transient conversation t
 
 The bridge should create and own session identity, including caller ID mapping, PIN validation, and mapped Home Assistant user context.
 
-### Rationale
-
-Voice providers should not become the source of truth for house identity, authorization, or service permissions.
-
-### Consequences
+Consequences:
 
 - Caller ID, PIN mappings, and Home Assistant user mapping should remain in Home Assistant-controlled configuration.
 - Provider metadata may be used as input, but authorization decisions remain local.
@@ -320,17 +242,67 @@ Voice providers should not become the source of truth for house identity, author
 
 Conversation Relay mode should not invoke local Whisper, Home Assistant TTS, local generated audio files, or `/audio/*` playback in the primary path.
 
-### Rationale
-
-The purpose of the v2 prototype is to prove a text-only bridge. Keeping Conversation Relay separate from the v1 audio path prevents the prototype from inheriting the latency, storage, cleanup, and public media-serving problems that v2.0.0 is intended to avoid.
-
-### Consequences
+Consequences:
 
 - The websocket handler sends final transcript text to Home Assistant Conversation.
 - The websocket handler returns Home Assistant response text to Conversation Relay as text messages.
 - Generated speech is delegated to Twilio/ElevenLabs.
 - Conversation Relay mode must not write caller audio, generated TTS audio, transient transcripts, or transient response text to disk.
 - Gather mode may continue using local recording, transcription, generated audio, and `/audio/*` as fallback behavior.
+
+## Decision 016: Prefer caller whitelist authentication for v2
+
+**Status:** Accepted
+
+The preferred v2 authentication path is caller whitelist matching, mapped to Home Assistant users.
+
+```text
+Twilio From number
+  -> normalize/match against allowed_callers
+  -> mapped Home Assistant user
+  -> selected voice_bridge_mode
+```
+
+Rationale:
+
+Known household callers should not need to enter a PIN before every call. Caller whitelist matching reduces call setup latency and allows the bridge to map the session directly to the correct Home Assistant user.
+
+Consequences:
+
+- Add or implement configuration for:
+
+```yaml
+auth_mode: caller_whitelist | pin | caller_whitelist_or_pin
+unknown_caller_policy: reject | pin_fallback
+allowed_callers:
+  - name: Eric Goforth
+    phone_number: "+19013027364"
+    ha_user_id: "<home_assistant_user_id>"
+```
+
+- Known callers should continue directly to the selected bridge mode.
+- Unknown callers should either be rejected or sent to PIN fallback, depending on configuration.
+- Full caller numbers must not be logged by default.
+- Caller ID whitelist matching is convenient but not strong authentication by itself.
+- Twilio webhook signature validation remains required before production use.
+
+## Decision 017: Treat ARCHITECTURE.md as the stable guardrail document
+
+**Status:** Accepted
+
+`docs/ARCHITECTURE.md` is the stable, human-owned architecture document. Codex should follow it as guardrails and should not use it as a running development journal.
+
+Rationale:
+
+The architecture file should remain readable, stable, and intentional. Codex needs a place to communicate implementation questions, challenges, discoveries, and testing activity without accidentally turning the architecture document into a noisy work log.
+
+Consequences:
+
+- ChatGPT/Eric own most updates to `docs/ARCHITECTURE.md`.
+- Codex should read `docs/ARCHITECTURE.md` before implementation work.
+- Codex should record implementation notes, proposed decision changes, and open questions in `docs/DECISIONS.md` unless instructed otherwise.
+- Codex may use focused markdown files for testing and operational notes, such as `docs/TWILIO_DEVELOPMENT.md` or future test reports.
+- If Codex believes the architecture should change, it should document the proposed change in `docs/DECISIONS.md` first.
 
 ## Open questions
 
@@ -342,6 +314,7 @@ The purpose of the v2 prototype is to prove a text-only bridge. Keeping Conversa
 6. What entities should the HACS integration expose by default?
 7. How should secrets be shared between the HACS integration and bridge service/add-on?
 8. Should Conversation Relay websocket signature validation be implemented before broader testing or before production release?
+9. What is the final storage model for caller whitelist configuration in the add-on and future HACS integration?
 
 ## Immediate implementation plan
 
@@ -350,8 +323,10 @@ The purpose of the v2 prototype is to prove a text-only bridge. Keeping Conversa
 3. Build a text bridge Conversation Relay prototype. **Done.**
 4. Wire transcript text to Home Assistant Conversation. **Done.**
 5. Return Home Assistant response text to Conversation Relay. **Done.**
-6. Validate ElevenLabs TTS configuration through Twilio. **Next.**
-7. Add latency instrumentation. **Done for logs; diagnostics remain future work.**
-8. Add initial HACS integration skeleton. **Done.**
-9. Move configuration and diagnostics into the HACS integration. **Future.**
-10. Keep the current add-on as the bridge runtime until an integration-only deployment is proven safe. **Current approach.**
+6. Add caller whitelist authentication mapped to Home Assistant users. **Next.**
+7. Keep PIN authentication as fallback/legacy behavior. **Next hardening target.**
+8. Validate ElevenLabs TTS configuration through Twilio. **Next after auth hardening.**
+9. Add latency instrumentation. **Done for logs; diagnostics remain future work.**
+10. Add initial HACS integration skeleton. **Done.**
+11. Move configuration and diagnostics into the HACS integration. **Future.**
+12. Keep the current add-on as the bridge runtime until an integration-only deployment is proven safe. **Current approach.**

@@ -1,5 +1,27 @@
 # Twilio Voice Assistant Architecture
 
+## Document role and ownership
+
+This document is the stable architectural north star for the Twilio Voice Assistant project.
+
+It defines the intended v2.0.0 direction, system boundaries, preferred call/authentication flows, and guardrails that implementation work should follow.
+
+Ownership model:
+
+- Eric and ChatGPT own the architecture direction in this file.
+- Codex should treat this file as authoritative guardrails before making implementation changes.
+- Codex should not use this file as a scratchpad, progress log, or open-question tracker.
+- Implementation discoveries, testing notes, uncertainties, and proposed changes should be recorded in `docs/DECISIONS.md` or focused development/testing markdown files.
+- If implementation work reveals that this architecture is wrong or incomplete, Codex should document the question or proposed change elsewhere first instead of silently rewriting this file.
+
+Related working documents:
+
+```text
+docs/DECISIONS.md              Accepted decisions, proposed decisions, questions, and implementation notes.
+docs/TWILIO_DEVELOPMENT.md     Twilio-side setup, provider validation, public routes, and test matrix.
+README.md                      User-facing installation and current stable usage notes.
+```
+
 ## Version target
 
 This document describes the targeted **v2.0.0 architecture** for the Twilio Voice Assistant project.
@@ -16,7 +38,7 @@ As of the first v2.0.0 prototype phase, the repository includes:
 - Optional `conversation_relay` and reserved `elevenlabs_agent` bridge modes.
 - `pin_mode` configuration with DTMF as the default and the legacy spoken-PIN recording path still available.
 - Conversation Relay configuration placeholders for TTS provider, voice, transcription provider, and language.
-- A Conversation Relay TwiML path after successful PIN validation.
+- A Conversation Relay TwiML path after successful authentication.
 - A public `/conversation_relay` websocket endpoint for Conversation Relay events.
 - Shared Home Assistant Conversation request handling for Gather and Conversation Relay paths.
 - Structured timing logs for inbound calls, PIN flow, bridge selection, Conversation Relay connection, transcript handling, Home Assistant request/response, outbound response text, and call end.
@@ -32,9 +54,11 @@ The Conversation Relay path is still experimental. It is ready for account-level
 3. Keep Home Assistant Conversation as the source of truth for the assistant's reasoning, house context, and service execution.
 4. Move call audio handling, speech-to-text, and text-to-speech to the external voice layer.
 5. Pass only text and session metadata between the external voice layer and the Home Assistant side.
-6. Preserve PIN/caller validation, user identity mapping, logging, and safe public exposure boundaries.
-7. Evolve the project toward a **full HACS-compliant Home Assistant custom integration**.
-8. Keep the current add-on path available as a fallback or compatibility bridge until the v2 integration is complete.
+6. Prefer caller whitelist authentication mapped to Home Assistant users.
+7. Preserve PIN authentication as fallback/legacy behavior.
+8. Preserve user identity mapping, logging, and safe public exposure boundaries.
+9. Evolve the project toward a **full HACS-compliant Home Assistant custom integration**.
+10. Keep the current add-on path available as a fallback or compatibility bridge until the v2 integration is complete.
 
 ## Architectural principle
 
@@ -53,6 +77,8 @@ Caller audio
   -> Twilio / ElevenLabs TTS
   -> caller hears speech
 ```
+
+Authentication and authorization should stay under Home Assistant/bridge control. External voice providers may supply caller metadata, but they should not become the source of truth for house identity or permission decisions.
 
 ## v1.x architecture summary
 
@@ -89,6 +115,7 @@ The v2.0.0 target separates the system into three layers.
 Responsible for:
 
 - Receiving and maintaining the phone call.
+- Providing inbound caller metadata such as Twilio `From`, `To`, and `CallSid`.
 - Handling caller audio.
 - Performing speech-to-text.
 - Performing text-to-speech using ElevenLabs.
@@ -104,21 +131,23 @@ Preferred candidates:
 Responsible for:
 
 - Receiving the inbound Twilio webhook.
-- Validating the caller and PIN.
+- Normalizing and matching caller phone numbers against an allowed caller list.
+- Mapping known callers to Home Assistant users.
+- Applying unknown caller policy.
+- Supporting PIN fallback/legacy authentication when configured.
 - Creating a conversation session.
-- Mapping the caller to a Home Assistant user where possible.
 - Receiving transcribed text events.
 - Sending text to Home Assistant Conversation.
 - Returning response text to the external voice layer.
-- Logging latency and session events.
+- Logging latency and session events without leaking secrets or full caller numbers.
 - Enforcing public/private route boundaries.
 
 The bridge should not:
 
 - Store caller audio.
-- Generate TTS audio locally.
-- Serve generated audio files.
-- Require Home Assistant media-source routes for normal operation.
+- Generate TTS audio locally in the v2 primary path.
+- Serve generated audio files in the v2 primary path.
+- Require Home Assistant media-source routes for normal Conversation Relay operation.
 
 ### 3. Home Assistant integration layer
 
@@ -129,26 +158,83 @@ Responsible for:
 - Config flow setup.
 - Options flow for Twilio, ElevenLabs, and conversation bridge settings.
 - Conversation agent selection.
+- Caller whitelist configuration.
 - User/PIN/caller identity mapping.
 - Diagnostics.
 - Repairs and setup validation.
 - Services for test calls, session inspection, and optional administrative actions.
 - Entities or sensors exposing bridge health, last call status, and latency metrics.
 
+## Preferred v2.0.0 authentication model
+
+The preferred v2 authentication path is caller whitelist matching.
+
+```text
+Twilio From number
+  -> bridge normalizes caller number
+  -> bridge matches against allowed_callers
+  -> bridge maps caller to Home Assistant user
+  -> bridge starts selected voice_bridge_mode
+```
+
+PIN authentication remains available as fallback/legacy behavior. It should not be the preferred v2 path because it adds latency and an extra conversational turn before the assistant can begin.
+
+Supported authentication modes should be:
+
+```yaml
+auth_mode: caller_whitelist | pin | caller_whitelist_or_pin
+unknown_caller_policy: reject | pin_fallback
+```
+
+Example allowed caller shape:
+
+```yaml
+allowed_callers:
+  - name: Eric Goforth
+    phone_number: "+19013027364"
+    ha_user_id: "<home_assistant_user_id>"
+```
+
+Caller ID whitelist matching is convenient for household use, but it is not strong authentication by itself. Caller ID can be spoofed, forwarded, or transformed by carrier behavior. Production-sensitive deployments should use Twilio webhook validation, narrow public routing, careful logging, and optionally PIN fallback or confirmation for high-impact actions.
+
 ## Preferred v2.0.0 call flow
+
+Known caller:
 
 ```text
 1. Caller dials Twilio number.
 2. Twilio sends inbound call webhook to the public bridge endpoint.
-3. Bridge prompts for PIN using DTMF where possible.
-4. Bridge validates PIN and maps the session to a Home Assistant user.
-5. Bridge returns TwiML that connects the call to the selected external voice layer.
-6. External voice layer performs STT and sends transcript text to the bridge.
-7. Bridge sends transcript text to Home Assistant Conversation.
-8. Home Assistant returns response text.
-9. Bridge returns response text to the external voice layer.
-10. External voice layer speaks response using ElevenLabs TTS.
-11. Bridge logs timing and session state without writing audio to disk.
+3. Bridge reads Twilio From number.
+4. Bridge normalizes and matches caller against allowed_callers.
+5. Bridge maps caller to a Home Assistant user.
+6. Bridge starts the selected voice_bridge_mode.
+7. External voice layer performs STT and sends transcript text to the bridge.
+8. Bridge sends transcript text to Home Assistant Conversation.
+9. Home Assistant returns response text.
+10. Bridge returns response text to the external voice layer.
+11. External voice layer speaks response using ElevenLabs TTS.
+12. Bridge logs timing and session state without writing audio to disk.
+```
+
+Unknown caller with `unknown_caller_policy: reject`:
+
+```text
+1. Caller dials Twilio number.
+2. Bridge reads Twilio From number.
+3. Bridge finds no allowed caller match.
+4. Bridge rejects the call or politely hangs up.
+5. No bridge session starts.
+```
+
+Unknown caller with `unknown_caller_policy: pin_fallback`:
+
+```text
+1. Caller dials Twilio number.
+2. Bridge reads Twilio From number.
+3. Bridge finds no allowed caller match.
+4. Bridge prompts for PIN.
+5. Bridge validates PIN and maps the session to a Home Assistant user.
+6. Bridge starts the selected voice_bridge_mode.
 ```
 
 ## Candidate implementation modes
@@ -239,7 +325,7 @@ custom_components/twilio_voice_assistant/const.py
 hacs.json
 ```
 
-HACS publication requirements should be validated against the current HACS documentation before release. At the time this architecture was written, HACS integration repositories require one integration per repository, required integration files under `custom_components/INTEGRATION_NAME/`, and a `manifest.json` with required keys including `domain`, `documentation`, `issue_tracker`, `codeowners`, `name`, and `version`.
+HACS publication requirements should be validated against the current HACS documentation before release. HACS integration repositories require one integration per repository, required integration files under `custom_components/INTEGRATION_NAME/`, and a `manifest.json` with required keys including `domain`, `documentation`, `issue_tracker`, `codeowners`, `name`, and `version`.
 
 ## Add-on versus integration split
 
@@ -265,21 +351,51 @@ The safest near-term design is integration plus add-on/service, with the integra
 
 ## Security boundaries
 
-Publicly reachable routes should be minimal.
+Publicly reachable routes should be minimal and mode-aware.
 
-Allowed public routes should be limited to the specific Twilio or ElevenLabs webhook and websocket endpoints required for call operation.
+Common public Twilio routes:
+
+```text
+/incoming_call
+/start_session
+```
+
+PIN fallback or legacy PIN mode:
+
+```text
+/check_pin
+```
+
+Gather mode only:
+
+```text
+/process_command
+/audio/*
+```
+
+Conversation Relay mode only:
+
+```text
+/conversation_relay
+/conversation_relay/status
+```
 
 Admin, diagnostics, settings, token inspection, and Home Assistant internal APIs must not be exposed directly to the public internet.
 
-Secrets must remain in Home Assistant storage or add-on configuration and must not be logged.
+Secrets, PINs, full caller numbers, full transcripts, and full Home Assistant responses must not be logged by default.
+
+Twilio webhook signature validation and Conversation Relay websocket validation are required before production use.
 
 ## Latency instrumentation
 
 v2.0.0 should log timing for each call stage:
 
 - inbound call received
-- PIN prompt sent
-- PIN accepted
+- caller whitelist matched
+- unknown caller rejected
+- unknown caller PIN fallback selected
+- PIN prompt sent, if PIN fallback/legacy auth is used
+- PIN accepted, if PIN fallback/legacy auth is used
 - bridge session created
 - external voice layer connected
 - transcript text received
@@ -295,13 +411,17 @@ These timings should be exposed through diagnostics and optionally through Home 
 Likely v2.0.0 configuration fields:
 
 ```yaml
+auth_mode: caller_whitelist | pin | caller_whitelist_or_pin
+unknown_caller_policy: reject | pin_fallback
+allowed_callers:
+  - name: Eric Goforth
+    phone_number: "+19013027364"
+    ha_user_id: "<home_assistant_user_id>"
 voice_bridge_mode: gather | conversation_relay | elevenlabs_agent
 conversation_agent: <home_assistant_conversation_agent_id>
 tts_provider: elevenlabs
 public_base_url: https://assistant.example.com
-require_pin: true
-pin_mode: dtmf
-caller_id_mapping: enabled
+pin_mode: dtmf | speech
 latency_logging: true
 ```
 
@@ -316,7 +436,7 @@ conversation_relay_language: en-US
 pin_mode: dtmf | speech
 ```
 
-Additional provider-specific fields may be required after validating Twilio Conversation Relay and ElevenLabs Agent APIs.
+Caller whitelist configuration is documented as the preferred v2 target and should be implemented next. Additional provider-specific fields may be required after validating Twilio Conversation Relay and ElevenLabs Agent APIs.
 
 ## Migration strategy
 
@@ -328,9 +448,10 @@ Additional provider-specific fields may be required after validating Twilio Conv
 6. Add ElevenLabs TTS configuration. **Implemented as Conversation Relay provider/voice configuration placeholders.**
 7. Add latency logs and diagnostics. **Timing logs implemented; diagnostics remain future work.**
 8. Introduce HACS custom integration structure. **Initial skeleton implemented.**
-9. Validate Conversation Relay and ElevenLabs behavior against the active Twilio account. **Next.**
-10. Move setup and monitoring into the HACS integration. **Future.**
-11. Keep the add-on or bridge service only for public webhook/websocket duties if still required. **Future.**
+9. Add caller whitelist authentication mapped to Home Assistant users. **Next.**
+10. Validate Conversation Relay and ElevenLabs behavior against the active Twilio account. **Next after auth hardening.**
+11. Move setup and monitoring into the HACS integration. **Future.**
+12. Keep the add-on or bridge service only for public webhook/websocket duties if still required. **Future.**
 
 ## Release definition for v2.0.0
 
@@ -340,6 +461,8 @@ v2.0.0 should be considered complete when:
 - ElevenLabs is used for TTS.
 - Local audio file generation is not part of the primary call path.
 - Home Assistant Conversation remains the assistant brain.
+- Caller whitelist authentication can map known callers to Home Assistant users.
+- PIN authentication remains available as fallback/legacy behavior.
 - The project has a HACS-compliant custom integration structure or a documented migration branch toward that structure.
 - The public/private route boundary is documented and enforced.
 - Latency metrics are captured for the full conversation path.

@@ -165,7 +165,7 @@ conversation_relay_language: en-US
 
 Leave `conversation_relay_voice` empty until the Twilio account has a confirmed Conversation Relay voice ID.
 
-TODO: Validate the final add-on schema names and storage model for `auth_mode`, `unknown_caller_policy`, and `allowed_callers` when the caller whitelist implementation lands in code.
+The add-on schema now accepts `auth_mode`, `unknown_caller_policy`, and `allowed_callers`. Caller whitelist management is configuration-file based in this phase; an admin UI for allowed callers is still future work.
 
 ## Authentication Call Flows
 
@@ -437,9 +437,7 @@ response_text_sent_to_conversation_relay
 call_ended
 ```
 
-These logs should avoid PINs, auth tokens, full caller numbers, full transcripts, and full response text.
-
-TODO: Align exact event names with the caller whitelist implementation when it lands in code.
+These logs avoid PINs, auth tokens, full caller numbers, full transcripts, and full response text by default.
 
 ## Troubleshooting
 

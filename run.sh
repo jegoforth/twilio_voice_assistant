@@ -30,6 +30,21 @@ public_base_url = str(config.get('public_base_url', '')).strip().rstrip('/')
 if public_base_url and not public_base_url.startswith(('http://', 'https://')):
     public_base_url = f'https://{public_base_url}'
 os.environ['PUBLIC_BASE_URL'] = public_base_url
+os.environ['AUTH_MODE'] = str(
+    config.get('auth_mode', 'pin')
+).strip().lower()
+os.environ['UNKNOWN_CALLER_POLICY'] = str(
+    config.get('unknown_caller_policy', 'reject')
+).strip().lower()
+allowed_callers = config.get('allowed_callers', [])
+if isinstance(allowed_callers, str):
+    try:
+        allowed_callers = json.loads(allowed_callers)
+    except:
+        allowed_callers = []
+if not isinstance(allowed_callers, list):
+    allowed_callers = []
+os.environ['ALLOWED_CALLERS_JSON'] = json.dumps(allowed_callers)
 os.environ['VOICE_BRIDGE_MODE'] = str(
     config.get('voice_bridge_mode', 'gather')
 ).strip().lower()

@@ -284,7 +284,14 @@ allowed_callers:
 - Unknown callers should either be rejected or sent to PIN fallback, depending on configuration.
 - Full caller numbers must not be logged by default.
 - Caller ID whitelist matching is convenient but not strong authentication by itself.
-- Twilio webhook signature validation remains required before production use.
+- `auth_mode: pin` remains the backward-compatible default for existing add-on installs.
+- Twilio webhook signature validation and Conversation Relay websocket validation remain required before production use.
+
+Implementation note:
+
+The first implementation reads `allowed_callers` from add-on configuration, normalizes common Twilio `From` values to E.164, logs masked caller context, and starts the selected bridge mode only after a whitelist match or successful PIN fallback.
+
+Caller whitelist administration is not yet exposed in the admin UI.
 
 ## Decision 017: Treat ARCHITECTURE.md as the stable guardrail document
 
@@ -315,6 +322,7 @@ Consequences:
 7. How should secrets be shared between the HACS integration and bridge service/add-on?
 8. Should Conversation Relay websocket signature validation be implemented before broader testing or before production release?
 9. What is the final storage model for caller whitelist configuration in the add-on and future HACS integration?
+10. Should allowed caller management be added to the admin UI before v2.0.0, or should it move directly into the future HACS integration options flow?
 
 ## Immediate implementation plan
 
@@ -323,8 +331,8 @@ Consequences:
 3. Build a text bridge Conversation Relay prototype. **Done.**
 4. Wire transcript text to Home Assistant Conversation. **Done.**
 5. Return Home Assistant response text to Conversation Relay. **Done.**
-6. Add caller whitelist authentication mapped to Home Assistant users. **Next.**
-7. Keep PIN authentication as fallback/legacy behavior. **Next hardening target.**
+6. Add caller whitelist authentication mapped to Home Assistant users. **Done.**
+7. Keep PIN authentication as fallback/legacy behavior. **Done.**
 8. Validate ElevenLabs TTS configuration through Twilio. **Next after auth hardening.**
 9. Add latency instrumentation. **Done for logs; diagnostics remain future work.**
 10. Add initial HACS integration skeleton. **Done.**

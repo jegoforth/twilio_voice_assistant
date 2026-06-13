@@ -94,6 +94,12 @@ Open the add-on configuration page in Home Assistant and set:
 - `public_base_url`: The public HTTPS base URL Twilio can reach, without a trailing slash.
   - Example: `https://assistant.example.com`
   - `assistant.example.com` is also accepted and will be treated as HTTPS.
+- `auth_mode`: Optional authentication mode. Defaults to `pin` for compatibility.
+  - `caller_whitelist`: Match Twilio `From` against configured callers.
+  - `pin`: Legacy PIN-first behavior.
+  - `caller_whitelist_or_pin`: Known callers skip PIN; unknown callers can use PIN fallback.
+- `unknown_caller_policy`: Defaults to `reject`. Use `pin_fallback` to allow unknown callers to try PIN auth.
+- `allowed_callers`: Optional list of known callers with `name`, E.164 `phone_number`, and Home Assistant `ha_user_id`.
 - `voice_bridge_mode`: Optional bridge mode. Defaults to `gather`.
   - `gather`: v1-compatible fallback mode using the existing local audio path.
   - `conversation_relay`: Experimental v2 prototype using Twilio Conversation Relay.
@@ -138,7 +144,8 @@ PINs and assistant settings are stored in `/share/twilio_voice_assistant` so the
 
 - Rotate your Twilio auth token if it is ever pasted into logs, screenshots, chat, or documentation.
 - The add-on currently uses local Whisper transcription for call audio before sending text to Home Assistant Conversation.
-- Conversation Relay mode is experimental. After PIN validation, it returns `<Connect><ConversationRelay>` TwiML and expects Twilio to connect to the add-on websocket at `/conversation_relay`.
+- Caller whitelist authentication is the preferred v2 path. PIN authentication remains the default fallback/legacy path for compatibility.
+- Conversation Relay mode is experimental. After caller whitelist or PIN authentication, it returns `<Connect><ConversationRelay>` TwiML and expects Twilio to connect to the add-on websocket at `/conversation_relay`.
 - ElevenLabs TTS is the target voice provider for the v2.0.0 path.
 - The primary v2 path avoids local caller-audio and generated-TTS audio file handling; local audio files remain part of the `gather` fallback mode.
 - The selected Home Assistant TTS engine must be able to generate audio that Twilio can play through the public URL configured in `public_base_url`.

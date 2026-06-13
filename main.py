@@ -4,6 +4,7 @@ from fastapi.responses import Response, HTMLResponse, JSONResponse, RedirectResp
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 import requests
+import httpx
 import websockets
 import asyncio
 import whisper
@@ -35,6 +36,9 @@ PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "").rstrip("/")
 if PUBLIC_BASE_URL and not PUBLIC_BASE_URL.startswith(("http://", "https://")):
     PUBLIC_BASE_URL = f"https://{PUBLIC_BASE_URL}"
 DEBUG = os.getenv("DEBUG", "false").lower() == "true"
+AUTH_MODE = os.getenv("AUTH_MODE", "pin").strip().lower()
+UNKNOWN_CALLER_POLICY = os.getenv("UNKNOWN_CALLER_POLICY", "reject").strip().lower()
+ALLOWED_CALLERS_JSON = os.getenv("ALLOWED_CALLERS_JSON", "[]")
 VOICE_BRIDGE_MODE = os.getenv("VOICE_BRIDGE_MODE", "gather").strip().lower()
 CONVERSATION_RELAY_TTS_PROVIDER = os.getenv(
     "CONVERSATION_RELAY_TTS_PROVIDER", "ElevenLabs"
@@ -47,6 +51,29 @@ CONVERSATION_RELAY_LANGUAGE = os.getenv(
     "CONVERSATION_RELAY_LANGUAGE", "en-US"
 ).strip()
 PIN_MODE = os.getenv("PIN_MODE", "dtmf").strip().lower()
+
+SUPPORTED_AUTH_MODES = {
+    "caller_whitelist",
+    "pin",
+    "caller_whitelist_or_pin",
+}
+if AUTH_MODE not in SUPPORTED_AUTH_MODES:
+    print(
+        "WARNING: Unsupported auth_mode "
+        f"{AUTH_MODE!r}; falling back to 'pin'"
+    )
+    AUTH_MODE = "pin"
+
+SUPPORTED_UNKNOWN_CALLER_POLICIES = {
+    "reject",
+    "pin_fallback",
+}
+if UNKNOWN_CALLER_POLICY not in SUPPORTED_UNKNOWN_CALLER_POLICIES:
+    print(
+        "WARNING: Unsupported unknown_caller_policy "
+        f"{UNKNOWN_CALLER_POLICY!r}; falling back to 'reject'"
+    )
+    UNKNOWN_CALLER_POLICY = "reject"
 
 SUPPORTED_VOICE_BRIDGE_MODES = {
     "gather",
@@ -91,6 +118,93 @@ def log_timing(event: str, **fields):
 def debug_log(event: str, **fields):
     if DEBUG:
         print("DEBUG " + json.dumps({"event": event, **fields}, sort_keys=True))
+
+
+def mask_phone_number(phone_number: str | None) -> str:
+    """Mask caller numbers in logs while preserving enough context to debug."""
+    if not phone_number:
+        return "unknown"
+    digits = re.sub(r"\D", "", phone_number)
+    if len(digits) <= 4:
+        return "****"
+    return f"+***{digits[-4:]}"
+
+
+def normalize_phone_number(phone_number: str | None) -> str | None:
+    """Normalize common Twilio caller IDs to E.164 where possible."""
+    if not phone_number:
+        return None
+    stripped = phone_number.strip()
+    digits = re.sub(r"\D", "", stripped)
+    if not digits:
+        return None
+    if stripped.startswith("+"):
+        return f"+{digits}"
+    if len(digits) == 10:
+        return f"+1{digits}"
+    if len(digits) == 11 and digits.startswith("1"):
+        return f"+{digits}"
+    return f"+{digits}"
+
+
+def load_allowed_callers():
+    """Parse allowed callers from add-on configuration without logging numbers."""
+    try:
+        callers = json.loads(ALLOWED_CALLERS_JSON)
+    except Exception as e:
+        print(f"WARNING: Could not parse allowed_callers: {e}")
+        return []
+
+    if not isinstance(callers, list):
+        print("WARNING: allowed_callers must be a list; ignoring configured value")
+        return []
+
+    normalized_callers = []
+    for caller in callers:
+        if not isinstance(caller, dict):
+            continue
+        normalized_number = normalize_phone_number(caller.get("phone_number"))
+        ha_user_id = (caller.get("ha_user_id") or "").strip()
+        if not normalized_number or not ha_user_id:
+            continue
+        normalized_callers.append({
+            "name": (caller.get("name") or ha_user_id).strip() or ha_user_id,
+            "phone_number": normalized_number,
+            "ha_user_id": ha_user_id,
+        })
+    return normalized_callers
+
+
+ALLOWED_CALLERS = load_allowed_callers()
+
+
+def find_allowed_caller(from_number: str | None):
+    normalized_from = normalize_phone_number(from_number)
+    if not normalized_from:
+        return None, normalized_from
+    for caller in ALLOWED_CALLERS:
+        if caller["phone_number"] == normalized_from:
+            return caller, normalized_from
+    return None, normalized_from
+
+
+def log_startup_configuration():
+    log_timing(
+        "startup_configuration",
+        auth_mode=AUTH_MODE,
+        unknown_caller_policy=UNKNOWN_CALLER_POLICY,
+        voice_bridge_mode=VOICE_BRIDGE_MODE,
+        pin_mode=PIN_MODE,
+        conversation_relay_tts_provider=CONVERSATION_RELAY_TTS_PROVIDER,
+        conversation_relay_transcription_provider=(
+            CONVERSATION_RELAY_TRANSCRIPTION_PROVIDER
+        ),
+        conversation_relay_language=CONVERSATION_RELAY_LANGUAGE,
+        conversation_relay_voice_configured=bool(CONVERSATION_RELAY_VOICE),
+        allowed_callers_count=len(ALLOWED_CALLERS),
+    )
+    print("TODO: Add Twilio webhook signature validation before production use.")
+    print("TODO: Add Conversation Relay websocket validation before production use.")
 
 
 class PinRequest(BaseModel):
@@ -361,8 +475,10 @@ def pin_entry_user_name(pin_entry, user_map):
 PIN_MAP = load_pin_map()
 
 if DEBUG:
-    print(f"Loaded PIN_MAP with {len(PIN_MAP)} entries: {PIN_MAP}")
+    print(f"Loaded PIN_MAP with {len(PIN_MAP)} entries")
     print(f"Loaded settings: {load_settings()}")
+
+log_startup_configuration()
 
 
 def twiml_response(xml: str):
@@ -398,6 +514,45 @@ def polite_hangup(message: str = "Goodbye."):
     <Response>
         <Say>{message}</Say>
         <Hangup/>
+    </Response>
+    """)
+
+
+def prompt_for_pin(call_sid: str | None = None):
+    if PIN_MODE == "dtmf":
+        log_timing("pin_prompt_sent", call_sid=call_sid, pin_mode="dtmf")
+        return twiml_response("""
+        <Response>
+            <Gather input="dtmf" numDigits="4" timeout="10" action="/check_pin" method="POST">
+                <Say>Please enter your four digit PIN.</Say>
+            </Gather>
+            <Say>I did not receive a PIN. Goodbye.</Say>
+            <Hangup/>
+        </Response>
+        """)
+
+    log_timing("pin_prompt_sent", call_sid=call_sid, pin_mode="speech")
+    return twiml_response("""
+    <Response>
+        <Say>Please say your four digit PIN slowly, one digit at a time, after the beep.</Say>
+        <Pause length="1"/>
+        <Record
+            maxLength="5"
+            timeout="4"
+            action="/check_pin"
+            playBeep="true"
+            trim="do-not-trim"
+        />
+    </Response>
+    """)
+
+
+def redirect_to_start_session(user_id: str, user_name: str | None):
+    encoded_user_id = quote(user_id)
+    encoded_user_name = quote(user_name or user_id)
+    return twiml_response(f"""
+    <Response>
+        <Redirect>/start_session?user_id={encoded_user_id}&amp;user_name={encoded_user_name}</Redirect>
     </Response>
     """)
 
@@ -663,12 +818,12 @@ async def send_to_home_assistant_conversation(
         text_length=len(text),
     )
 
-    ha_raw = requests.post(
-        ha_url,
-        json=payload,
-        headers=headers,
-        timeout=30,
-    )
+    async with httpx.AsyncClient(timeout=30) as client:
+        ha_raw = await client.post(
+            ha_url,
+            json=payload,
+            headers=headers,
+        )
 
     log_timing(
         "home_assistant_conversation_response_received",
@@ -1382,33 +1537,45 @@ async def incoming_call(
     To: str = Form(None),
     CallSid: str = Form(None),
 ):
-    log_timing("inbound_call_received", call_sid=CallSid, bridge_mode=VOICE_BRIDGE_MODE)
-    if PIN_MODE == "dtmf":
-        log_timing("pin_prompt_sent", call_sid=CallSid, pin_mode="dtmf")
-        return twiml_response("""
-        <Response>
-            <Gather input="dtmf" numDigits="4" timeout="10" action="/check_pin" method="POST">
-                <Say>Please enter your four digit PIN.</Say>
-            </Gather>
-            <Say>I did not receive a PIN. Goodbye.</Say>
-            <Hangup/>
-        </Response>
-        """)
+    caller, normalized_from = find_allowed_caller(From)
+    masked_from = mask_phone_number(normalized_from or From)
+    log_timing(
+        "inbound_call_received",
+        call_sid=CallSid,
+        bridge_mode=VOICE_BRIDGE_MODE,
+        auth_mode=AUTH_MODE,
+        caller=masked_from,
+    )
 
-    log_timing("pin_prompt_sent", call_sid=CallSid, pin_mode="speech")
-    return twiml_response("""
-    <Response>
-        <Say>Please say your four digit PIN slowly, one digit at a time, after the beep.</Say>
-        <Pause length="1"/>
-        <Record
-            maxLength="5"
-            timeout="4"
-            action="/check_pin"
-            playBeep="true"
-            trim="do-not-trim"
-        />
-    </Response>
-    """)
+    if AUTH_MODE == "pin":
+        return prompt_for_pin(call_sid=CallSid)
+
+    if caller:
+        log_timing(
+            "caller_whitelist_matched",
+            call_sid=CallSid,
+            caller=masked_from,
+            user_id=caller["ha_user_id"],
+        )
+        return redirect_to_start_session(caller["ha_user_id"], caller["name"])
+
+    if (
+        AUTH_MODE == "caller_whitelist_or_pin"
+        or UNKNOWN_CALLER_POLICY == "pin_fallback"
+    ):
+        log_timing(
+            "unknown_caller_pin_fallback",
+            call_sid=CallSid,
+            caller=masked_from,
+        )
+        return prompt_for_pin(call_sid=CallSid)
+
+    log_timing(
+        "unknown_caller_rejected",
+        call_sid=CallSid,
+        caller=masked_from,
+    )
+    return polite_hangup("Sorry, this number is not authorized. Goodbye.")
 
 
 @app.post("/check_pin")
@@ -1449,8 +1616,7 @@ async def check_pin(
         )
         spoken_text = result.get("text", "").strip()
 
-        if DEBUG:
-            print("PIN spoken text:", spoken_text)
+        debug_log("pin_speech_transcribed", text_length=len(spoken_text))
         return await handle_pin_digits(spoken_text, call_sid=CallSid)
 
     except Exception:
@@ -1573,7 +1739,7 @@ async def process_command(
         )
         spoken_text = result.get("text", "").strip()
 
-        print("Command spoken text:", spoken_text)
+        debug_log("command_transcribed", text_length=len(spoken_text))
 
         if not spoken_text:
             return polite_hangup("I did not hear anything. Goodbye.")
@@ -1592,7 +1758,7 @@ async def process_command(
                 "Sorry, Home Assistant returned an error."
             )
 
-        print("HA reply:", reply)
+        debug_log("home_assistant_reply_ready", text_length=len(reply))
 
         reply_audio = await tts_to_audio(reply, f"{CallSid}_reply")
         filename = os.path.basename(reply_audio)

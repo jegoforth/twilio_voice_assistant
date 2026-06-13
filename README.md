@@ -4,6 +4,8 @@ Call a Twilio phone number, enter a PIN, and talk to your Home Assistant voice a
 
 This Home Assistant add-on receives incoming Twilio calls, authenticates the caller with a PIN, transcribes spoken commands, sends them to Home Assistant Assist / Conversation, and plays the spoken response back over the phone.
 
+The current default mode remains the v1-compatible Gather/audio-file flow. The v2.0.0 target architecture is documented in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): the preferred path is a text-only bridge where external voice services handle STT/TTS and Home Assistant Conversation remains the assistant brain.
+
 ## Requirements
 
 Before installing, make sure you have:
@@ -76,6 +78,8 @@ Your public domain should forward only these paths to the add-on on port `8000`:
 /check_pin
 /start_session
 /process_command
+/conversation_relay
+/conversation_relay/status
 /audio/*
 ```
 
@@ -90,6 +94,15 @@ Open the add-on configuration page in Home Assistant and set:
 - `public_base_url`: The public HTTPS base URL Twilio can reach, without a trailing slash.
   - Example: `https://assistant.example.com`
   - `assistant.example.com` is also accepted and will be treated as HTTPS.
+- `voice_bridge_mode`: Optional bridge mode. Defaults to `gather`.
+  - `gather`: v1-compatible fallback mode using the existing local audio path.
+  - `conversation_relay`: Experimental v2 prototype using Twilio Conversation Relay.
+  - `elevenlabs_agent`: Reserved for a future ElevenLabs Agent experiment.
+- `conversation_relay_tts_provider`: Defaults to `ElevenLabs`.
+- `conversation_relay_voice`: Optional Conversation Relay voice identifier.
+- `conversation_relay_transcription_provider`: Defaults to `Deepgram`.
+- `conversation_relay_language`: Defaults to `en-US`.
+- `pin_mode`: Defaults to `dtmf`. Set to `speech` to use the older spoken-PIN recording flow.
 - `debug`: Optional extra logging.
 
 Start the add-on after saving the configuration.
@@ -125,5 +138,8 @@ PINs and assistant settings are stored in `/share/twilio_voice_assistant` so the
 
 - Rotate your Twilio auth token if it is ever pasted into logs, screenshots, chat, or documentation.
 - The add-on currently uses local Whisper transcription for call audio before sending text to Home Assistant Conversation.
+- Conversation Relay mode is experimental. After PIN validation, it returns `<Connect><ConversationRelay>` TwiML and expects Twilio to connect to the add-on websocket at `/conversation_relay`.
+- ElevenLabs TTS is the target voice provider for the v2.0.0 path.
+- The primary v2 path avoids local caller-audio and generated-TTS audio file handling; local audio files remain part of the `gather` fallback mode.
 - The selected Home Assistant TTS engine must be able to generate audio that Twilio can play through the public URL configured in `public_base_url`.
 - Generated audio is the only content served from `/audio`. Admin data and PIN settings are not served from the public audio route.

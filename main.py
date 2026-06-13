@@ -17,13 +17,10 @@ from contextlib import asynccontextmanager
 from html import escape
 from urllib.parse import quote
 
-app = FastAPI()
-
 DATA_DIR = "/share/twilio_voice_assistant"
 AUDIO_DIR = f"{DATA_DIR}/audio"
 INGRESS_PROXY_IP = "172.30.32.2"
 os.makedirs(AUDIO_DIR, exist_ok=True)
-app.mount("/audio", StaticFiles(directory=AUDIO_DIR), name="audio")
 
 # Faster model for phone audio
 model = whisper.load_model("tiny")
@@ -205,6 +202,16 @@ def log_startup_configuration():
     )
     print("TODO: Add Twilio webhook signature validation before production use.")
     print("TODO: Add Conversation Relay websocket validation before production use.")
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    log_startup_configuration()
+    yield
+
+
+app = FastAPI(lifespan=lifespan)
+app.mount("/audio", StaticFiles(directory=AUDIO_DIR), name="audio")
 
 
 class PinRequest(BaseModel):
@@ -477,12 +484,6 @@ PIN_MAP = load_pin_map()
 if DEBUG:
     print(f"Loaded PIN_MAP with {len(PIN_MAP)} entries")
     print(f"Loaded settings: {load_settings()}")
-
-
-@app.on_event("startup")
-async def startup_event():
-    """Log safe deployment configuration once FastAPI starts."""
-    log_startup_configuration()
 
 
 def twiml_response(xml: str):

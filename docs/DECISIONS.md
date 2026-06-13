@@ -131,31 +131,25 @@ Consequences:
 - Home Assistant response text should be returned to the voice layer without local TTS generation.
 - Provider-specific agent loops should not bypass Home Assistant for house-control decisions unless explicitly designed as safe shortcuts.
 
-## Decision 009: Move toward a full HACS-compliant integration
+## Decision 009: Defer HACS custom integration work
 
-**Status:** Accepted
+**Status:** Deferred
 
-The project should evolve toward a **full HACS-compliant Home Assistant custom integration**.
+The project should remain focused on being a Home Assistant add-on for the current v2.0.0 hardening work. HACS custom integration work is deferred.
 
-The target integration should live under:
+Rationale:
 
-```text
-custom_components/twilio_voice_assistant/
-```
+The current runtime is a public webhook/websocket service packaged as a Supervisor add-on. HACS is for Home Assistant custom integrations under `custom_components/`, not for installing this add-on service. Keeping both shapes in the same repository creates confusion when adding the GitHub URL as an add-on repository.
 
 Implementation note:
 
-The repository now contains an initial skeleton:
+The earlier HACS skeleton has been removed for now. The repository is structured as a Home Assistant add-on repository with root `repository.yaml` and the installable add-on under:
 
 ```text
-custom_components/twilio_voice_assistant/__init__.py
-custom_components/twilio_voice_assistant/manifest.json
-custom_components/twilio_voice_assistant/config_flow.py
-custom_components/twilio_voice_assistant/const.py
-hacs.json
+twilio_voice_assistant/
 ```
 
-The skeleton establishes repository direction only. It does not yet replace the add-on or move bridge runtime behavior into Home Assistant.
+HACS integration work can be revisited later if the project needs Home Assistant-native config flows, entities, diagnostics, or options flows separate from the add-on service.
 
 ## Decision 010: Separate integration responsibilities from bridge-service responsibilities
 
@@ -165,11 +159,11 @@ The HACS integration and the public bridge service should be treated as separate
 
 Possible v2.0.0 deployment shapes:
 
-1. HACS integration plus Home Assistant add-on.
-2. HACS integration plus external bridge service.
-3. Integration-only mode if safe endpoint exposure is practical.
+1. Home Assistant add-on as the public bridge service.
+2. Future HACS integration plus Home Assistant add-on, if native configuration/entities are needed.
+3. Integration-only mode only if safe endpoint exposure is practical.
 
-The safest near-term target is HACS integration plus bridge service/add-on.
+The safest near-term target is the Home Assistant add-on as the bridge runtime.
 
 ## Decision 011: Public routes must be minimal
 
@@ -320,8 +314,8 @@ Consequences:
 3. Can Conversation Relay provide the desired interruption/barge-in behavior?
 4. Can ElevenLabs Agent integration preserve Home Assistant as the source of truth for conversation and service execution?
 5. Should the HACS integration and add-on remain in the same repository or eventually split?
-6. What entities should the HACS integration expose by default?
-7. How should secrets be shared between the HACS integration and bridge service/add-on?
+6. If HACS work returns later, what entities should the integration expose by default?
+7. If HACS work returns later, how should secrets be shared between the integration and bridge service/add-on?
 8. Should Conversation Relay websocket signature validation be implemented before broader testing or before production release?
 9. What is the final storage model for caller whitelist configuration in the add-on and future HACS integration?
 10. Should allowed caller management be added to the admin UI before v2.0.0, or should it move directly into the future HACS integration options flow?
@@ -337,6 +331,6 @@ Consequences:
 7. Keep PIN authentication as fallback/legacy behavior. **Done.**
 8. Validate ElevenLabs TTS configuration through Twilio. **Next after auth hardening.**
 9. Add latency instrumentation. **Done for logs; diagnostics remain future work.**
-10. Add initial HACS integration skeleton. **Done.**
-11. Move configuration and diagnostics into the HACS integration. **Future.**
+10. Structure the repository as a valid Home Assistant add-on repository. **Done.**
+11. Move configuration and diagnostics into a future HACS integration. **Deferred.**
 12. Keep the current add-on as the bridge runtime until an integration-only deployment is proven safe. **Current approach.**

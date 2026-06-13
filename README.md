@@ -40,6 +40,14 @@ Do not expose the admin page publicly. The admin page is intended to be opened t
 
 If this repository is private, your Home Assistant Supervisor must be able to access it. Public repositories are the simplest option for normal add-on store installation.
 
+This repository is structured as a Home Assistant add-on repository. The installable add-on lives in:
+
+```text
+twilio_voice_assistant/
+```
+
+For local add-on development, copy or mount that folder under Home Assistant's `/addons` directory.
+
 ### Manual Install
 
 1. In Home Assistant, go to **Settings** > **Add-ons** > **Add-on Store**.

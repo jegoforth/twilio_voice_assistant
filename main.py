@@ -478,7 +478,11 @@ if DEBUG:
     print(f"Loaded PIN_MAP with {len(PIN_MAP)} entries")
     print(f"Loaded settings: {load_settings()}")
 
-log_startup_configuration()
+
+@app.on_event("startup")
+async def startup_event():
+    """Log safe deployment configuration once FastAPI starts."""
+    log_startup_configuration()
 
 
 def twiml_response(xml: str):

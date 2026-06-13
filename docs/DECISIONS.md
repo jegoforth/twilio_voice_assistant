@@ -293,6 +293,8 @@ The first implementation reads `allowed_callers` from add-on configuration, norm
 
 Caller whitelist administration is not yet exposed in the admin UI.
 
+Startup configuration logging now runs from a FastAPI startup hook instead of module import so deployment logs clearly show the active authentication and bridge configuration when the app starts.
+
 ## Decision 017: Treat ARCHITECTURE.md as the stable guardrail document
 
 **Status:** Accepted

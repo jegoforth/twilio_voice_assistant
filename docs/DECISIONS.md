@@ -285,13 +285,15 @@ allowed_callers:
 
 Implementation note:
 
-The implementation reads `allowed_callers` from add-on configuration and from the Ingress-protected admin UI store at `/share/twilio_voice_assistant/allowed_callers.json`. Both sources are normalized into the same flat phone-number lookup, logs use masked caller context, and the selected bridge mode starts only after a whitelist match or successful PIN fallback.
+The implementation reads `allowed_callers` from the standard Home Assistant add-on configuration path. Entries are normalized into the same flat phone-number lookup, logs use masked caller context, and the selected bridge mode starts only after a whitelist match or successful PIN fallback.
 
 Startup configuration logging now runs from a FastAPI startup hook instead of module import so deployment logs clearly show the active authentication and bridge configuration when the app starts.
 
 Caller whitelist parsing now supports the preferred multi-number shape, where one Home Assistant user has a `phone_numbers` list. The legacy single-value `phone_number` shape remains supported and is normalized into the same flat lookup table internally.
 
-The Home Assistant add-on schema can represent the nested `phone_numbers` list, but nested list-of-record editing is awkward in the normal add-on configuration UI. The lightweight admin UI now manages saved allowed callers without requiring direct YAML editing, while add-on configuration remains available for advanced/manual deployments.
+Caller whitelist management is config-based for now. The inline admin UI should not be expanded to manage nested caller records because that couples authentication configuration to a fragile custom form and distracts from the standard add-on options path. Future management belongs in a HACS options flow or in a separately designed UI if the project later needs Home Assistant-native management.
+
+The immediate issue was add-on schema/config visibility, not runtime caller matching. The active add-on manifest is `twilio_voice_assistant/config.json`, and `allowed_callers` is present in that schema. If Home Assistant does not show nested `phone_numbers` cleanly in the visual options editor, use the add-on YAML/options editor with the documented examples instead of adding another inline admin form.
 
 ## Decision 017: Treat ARCHITECTURE.md as the stable guardrail document
 
@@ -322,7 +324,7 @@ Consequences:
 7. If HACS work returns later, how should secrets be shared between the integration and bridge service/add-on?
 8. Should Conversation Relay websocket signature validation be implemented before broader testing or before production release?
 9. What is the final storage model for caller whitelist configuration in the add-on and future HACS integration?
-10. Should allowed caller management be added to the admin UI before v2.0.0, or should it move directly into the future HACS integration options flow?
+10. What would a future HACS options flow need to manage caller whitelist entries cleanly without overloading the add-on admin page?
 
 ## Immediate implementation plan
 

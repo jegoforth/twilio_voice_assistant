@@ -20,6 +20,33 @@ Use this checklist for the next v2.0.0 validation pass. Keep test logs free of f
 
 ## Authentication
 
+- The active add-on manifest is `twilio_voice_assistant/config.json`.
+- The active schema includes `allowed_callers`.
+- After schema changes, the add-on version is bumped and Home Assistant shows the new version after repository refresh or reinstall.
+- Preferred multi-number caller whitelist configuration works from the standard add-on options/YAML editor:
+
+```yaml
+auth_mode: caller_whitelist
+unknown_caller_policy: reject
+allowed_callers:
+  - name: Eric Goforth
+    ha_user_id: "<home_assistant_user_id>"
+    phone_numbers:
+      - "+19013027364"
+      - "+1XXXXXXXXXX"
+```
+
+- Legacy single-number caller whitelist configuration still works:
+
+```yaml
+auth_mode: caller_whitelist
+unknown_caller_policy: reject
+allowed_callers:
+  - name: Eric Goforth
+    ha_user_id: "<home_assistant_user_id>"
+    phone_number: "+19013027364"
+```
+
 - `auth_mode: pin` still prompts for PIN on `/incoming_call`.
 - `auth_mode: pin` still reaches `/start_session` after a valid PIN.
 - `auth_mode: caller_whitelist` rejects an unknown caller when `unknown_caller_policy: reject`.
@@ -27,7 +54,7 @@ Use this checklist for the next v2.0.0 validation pass. Keep test logs free of f
 - A known caller in `allowed_callers` reaches `/start_session` without PIN.
 - A known caller configured with preferred `phone_numbers` reaches `/start_session` from each listed number.
 - A known caller configured with legacy `phone_number` still reaches `/start_session`.
-- The admin UI can add and delete an allowed caller with multiple phone numbers, and a newly added caller can authenticate without restarting the add-on.
+- The admin UI does not include allowed-caller management.
 - Caller numbers are masked in logs.
 
 ## Bridge Modes

@@ -13,6 +13,9 @@ Use this checklist for the next v2.0.0 validation pass. Keep test logs free of f
 - Conversation Relay remains the preferred/default voice bridge.
 - ElevenLabs Elspeth voice is working through Conversation Relay.
 - Gather remains deprecated fallback only.
+- Caller Access is the preferred admin model for unified `callers` records.
+- Caller Access stores `ha_user_id`, resolves the Home Assistant display name dynamically, masks phone numbers, and treats PIN values as write-only.
+- Legacy PIN management and `allowed_callers` remain migration/fallback only.
 - Stable v2 baseline: this version should be treated as the known-good baseline before adding new features.
 - Repository-installed add-on starts successfully.
 - Admin UI was restored and is functional again.
@@ -34,8 +37,8 @@ Use this checklist for the next v2.0.0 validation pass. Keep test logs free of f
 - The call ended correctly through the end-call handling.
 - Conversation Relay latency is much faster than the previous Gather/TTS/audio-file path.
 - Future changes should preserve this path unless explicitly replacing it.
-- Do not reintroduce custom allowed-caller admin UI work yet.
-- Allowed caller management remains config-based for now.
+- Caller Access replaces the earlier stopped allowed-caller UI attempt with a focused unified caller management section.
+- Caller Access is preferred for new caller management; add-on config `callers` remains supported.
 - Gather remains fallback compatibility mode.
 - Conversation Relay is now the preferred voice bridge mode.
 
@@ -107,8 +110,23 @@ allowed_callers:
 - A known caller configured with preferred `phone_numbers` reaches `/start_session` from each listed number.
 - A known caller configured with legacy `phone_number` still reaches `/start_session`.
 - Tested successfully: an allowed caller matched the config, skipped PIN, and entered the conversation flow.
-- The admin UI does not include allowed-caller management.
 - Caller numbers are masked in logs.
+
+## Caller Access Admin UI
+
+- Existing conversation agent dropdown still works.
+- Existing TTS engine, language, and voice dropdowns still work.
+- Caller Access user dropdown loads Home Assistant users.
+- Adding a caller with one phone number works.
+- Adding a caller with multiple phone numbers works.
+- Adding a caller with a fallback PIN works.
+- Existing admin-managed `callers` records show in the Caller Access list.
+- Existing add-on config `callers` records show in the Caller Access list as config-sourced records.
+- Saved caller records show Home Assistant display names and masked phone numbers only.
+- Saved caller records show only `PIN set` or `No PIN`; PIN values are not displayed.
+- Deleting an admin-managed caller access record works.
+- Legacy PIN management is collapsed and de-emphasized.
+- Legacy `allowed_callers` and old PIN map records continue to work at runtime during migration.
 
 ## Bridge Modes
 

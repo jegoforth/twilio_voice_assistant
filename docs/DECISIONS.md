@@ -292,13 +292,15 @@ The implementation reads canonical `callers` and legacy `allowed_callers` from t
 
 Schema note: legacy `allowed_callers[*].name` is also optional so Home Assistant can save existing options during the migration from `allowed_callers` to canonical `callers`.
 
+Caller Access admin UI is now the preferred management model for unified caller identity. It writes admin-managed `callers` records to `/share/twilio_voice_assistant/callers.json`, stores `ha_user_id` as the stable key, resolves the Home Assistant display name dynamically, masks phone numbers in the UI, and treats PIN values as write-only. Add-on config `callers` are still loaded and shown as config-sourced records, while legacy `allowed_callers` and the old PIN map remain runtime migration/fallback paths.
+
 Startup configuration logging now runs from a FastAPI startup hook instead of module import so deployment logs clearly show the active authentication and bridge configuration when the app starts.
 
 Caller whitelist parsing now supports the preferred multi-number shape, where one Home Assistant user has a `phone_numbers` list. The legacy single-value `phone_number` shape remains supported and is normalized into the same flat lookup table internally.
 
-Caller whitelist management is config-based for now. The inline admin UI should not be expanded to manage nested caller records because that couples authentication configuration to a fragile custom form and distracts from the standard add-on options path. Future management belongs in a HACS options flow or in a separately designed UI if the project later needs Home Assistant-native management.
+Caller whitelist management is no longer config-only. The previous broken inline allowed-caller form was not reintroduced; instead, the admin page now has a focused Caller Access section backed by `/share/twilio_voice_assistant/callers.json`. Future Home Assistant-native management can still move into a HACS options flow later, but the add-on admin page now has a safe migration UI for day-to-day caller access.
 
-The immediate issue was add-on schema/config visibility, not runtime caller matching. The active add-on manifest is `twilio_voice_assistant/config.json`, and `callers` plus legacy `allowed_callers` are present in that schema. If Home Assistant does not show nested `phone_numbers` cleanly in the visual options editor, use the add-on YAML/options editor with the documented examples instead of adding another inline admin form.
+The earlier issue was add-on schema/config visibility, not runtime caller matching. The active add-on manifest is `twilio_voice_assistant/config.json`, and `callers` plus legacy `allowed_callers` are present in that schema. The Caller Access UI avoids writing Home Assistant add-on options directly; it writes admin-managed caller records to `/share` and merges them with configured caller records at runtime.
 
 Validation note:
 
@@ -326,7 +328,7 @@ Stable v2 baseline:
 - Gather remains fallback compatibility mode.
 - Conversation Relay is now the preferred voice bridge mode.
 
-The attempted inline admin UI caller-management work was reverted/stopped. Caller identity management remains config-based for now. Do not reintroduce the custom allowed-caller admin UI at this stage. Future caller management should be handled by a HACS options flow or separately designed UI.
+The attempted inline allowed-caller management work was reverted/stopped. Caller Access supersedes it with a smaller, isolated UI that manages canonical caller records in `/share/twilio_voice_assistant/callers.json` without modifying Home Assistant add-on options directly. Future caller management can still move into a HACS options flow or separately designed Home Assistant-native UI.
 
 The next validation focus should be hardening Conversation Relay websocket validation, Twilio webhook signature validation, and interruption/barge-in behavior.
 

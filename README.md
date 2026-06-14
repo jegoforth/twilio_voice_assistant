@@ -107,7 +107,7 @@ Open the add-on configuration page in Home Assistant and set:
   - `pin`: Legacy PIN-first behavior.
   - `caller_whitelist_or_pin`: Known callers skip PIN; unknown callers can use PIN fallback.
 - `unknown_caller_policy`: Defaults to `reject`. Use `pin_fallback` to allow unknown callers to try PIN auth.
-- `callers`: Preferred v2 caller identity list with required Home Assistant `ha_user_id`, E.164 `phone_numbers`, optional fallback `pin`, and optional `name`. Runtime greetings use the Home Assistant user display name when available.
+- `callers`: Preferred v2 caller identity list with required Home Assistant `ha_user_id`, E.164 `phone_numbers`, optional fallback `pin`, and optional `name`. Runtime greetings use the Home Assistant user display name when available. Caller Access in the admin page manages the same unified caller model through `/share/twilio_voice_assistant/callers.json`.
 - `allowed_callers`: Legacy known-caller list. Prefer `callers` for new configuration.
 - `voice_bridge_mode`: Optional bridge mode. Defaults to `conversation_relay`.
   - `conversation_relay`: Preferred v2 text bridge using Twilio Conversation Relay.
@@ -133,12 +133,13 @@ From the admin page:
 3. Select the TTS language.
 4. Select a voice if the TTS engine provides voices.
 5. Click **Save Settings**.
-6. Create one or more PIN mappings:
-   - Enter a 4 digit PIN.
-   - Select the Home Assistant user for that PIN.
-   - Click **Add PIN**.
+6. Use **Caller Access** for normal access management:
+   - Select the Home Assistant user.
+   - Enter one or more caller phone numbers.
+   - Optionally enter a 4 digit fallback PIN.
+   - Click **Add Caller Access**.
 
-PINs and assistant settings are stored in `/share/twilio_voice_assistant` so they survive add-on rebuilds. PIN management in the admin page is legacy compatibility; new caller identity configuration should move toward the `callers` add-on config list.
+Caller Access stores `ha_user_id` as the stable key and resolves the display name from Home Assistant. Existing records show masked phone numbers and only `PIN set` or `No PIN`; saved PIN values are not displayed. Legacy PIN management is collapsed and kept only for migration compatibility. Assistant settings and admin-managed caller access are stored in `/share/twilio_voice_assistant` so they survive add-on rebuilds.
 
 ## Test
 

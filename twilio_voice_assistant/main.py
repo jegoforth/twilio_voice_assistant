@@ -116,6 +116,7 @@ if missing_vars:
 
 PIN_MAP_FILE = f"{DATA_DIR}/pin_map.json"
 SETTINGS_FILE = f"{DATA_DIR}/settings.json"
+CALLERS_FILE = f"{DATA_DIR}/callers.json"
 
 
 def log_timing(event: str, **fields):
@@ -233,8 +234,36 @@ def normalize_callers_for_lookup(callers, config_name: str):
     return normalized_callers, valid_caller_records
 
 
-def load_caller_identity_records():
+def load_config_caller_identity_records():
     return load_json_list(CALLERS_JSON, "callers")
+
+
+def load_admin_caller_identity_records():
+    try:
+        if os.path.exists(CALLERS_FILE):
+            with open(CALLERS_FILE, "r") as f:
+                callers = json.load(f)
+            if isinstance(callers, list):
+                return callers
+            print("WARNING: callers admin storage must be a list; ignoring saved value")
+    except Exception as e:
+        print(f"WARNING: Could not load callers admin storage: {e}")
+    return []
+
+
+def save_admin_caller_identity_records(callers):
+    try:
+        os.makedirs(DATA_DIR, exist_ok=True)
+        with open(CALLERS_FILE, "w") as f:
+            json.dump(callers, f, indent=2)
+        return True
+    except Exception as e:
+        print(f"ERROR: Could not save callers admin storage: {e}")
+        return False
+
+
+def load_caller_identity_records():
+    return load_config_caller_identity_records() + load_admin_caller_identity_records()
 
 
 def load_legacy_allowed_caller_records():
@@ -287,6 +316,9 @@ CALLER_IDENTITY_RECORD_COUNT = len(load_caller_identity_records())
 
 
 def find_allowed_caller(from_number: str | None):
+    global ALLOWED_CALLERS, ALLOWED_CALLER_RECORD_COUNT, CALLER_IDENTITY_RECORD_COUNT
+    ALLOWED_CALLERS, ALLOWED_CALLER_RECORD_COUNT = load_allowed_callers()
+    CALLER_IDENTITY_RECORD_COUNT = len(load_caller_identity_records())
     normalized_from = normalize_phone_number(from_number)
     if not normalized_from:
         return None, normalized_from
@@ -335,6 +367,12 @@ class PinRequest(BaseModel):
     pin: str
     user_id: str
     user_name: str | None = None
+
+
+class CallerAccessRequest(BaseModel):
+    ha_user_id: str
+    phone_numbers: list[str]
+    pin: str | None = None
 
 
 class SettingsRequest(BaseModel):
@@ -424,6 +462,56 @@ def save_pin_map(pin_map):
     except Exception as e:
         print(f"ERROR: Could not save PIN map: {e}")
         return False
+
+
+def caller_record_display(record: dict, index: int | None, source: str, user_map: dict):
+    user_id = normalize_ha_user_id(record.get("ha_user_id"), source)
+    configured_name = (record.get("name") or "").strip()
+    display_name = user_map.get(user_id) or configured_name or user_id
+    normalized_numbers = [
+        normalized
+        for raw_number in caller_phone_numbers(record)
+        if (normalized := normalize_phone_number(raw_number))
+    ]
+    return {
+        "index": index,
+        "source": source,
+        "ha_user_id": user_id,
+        "display_name": display_name,
+        "masked_phone_numbers": [
+            mask_phone_number(number)
+            for number in normalized_numbers
+        ],
+        "pin_set": bool(str(record.get("pin", "")).strip()),
+        "deletable": source == "admin",
+    }
+
+
+def normalize_caller_access_request(caller_request: CallerAccessRequest):
+    user_id = normalize_ha_user_id(caller_request.ha_user_id, "callers")
+    if not user_id:
+        return None, "Home Assistant user is required"
+
+    normalized_numbers = []
+    for phone_number in caller_request.phone_numbers or []:
+        normalized_number = normalize_phone_number(phone_number)
+        if normalized_number and normalized_number not in normalized_numbers:
+            normalized_numbers.append(normalized_number)
+
+    if not normalized_numbers:
+        return None, "At least one phone number is required"
+
+    pin = str(caller_request.pin or "").strip()
+    if pin and (not pin.isdigit() or len(pin) != 4):
+        return None, "Fallback PIN must be exactly 4 digits"
+
+    record = {
+        "ha_user_id": user_id,
+        "phone_numbers": normalized_numbers,
+    }
+    if pin:
+        record["pin"] = pin
+    return record, None
 
 
 @asynccontextmanager
@@ -1121,7 +1209,7 @@ async def admin_ui(request: Request):
                 color: #555;
                 font-size: 14px;
             }
-            input[type="text"], select {
+            input[type="text"], select, textarea {
                 width: 100%;
                 padding: 10px;
                 border: 1px solid #ddd;
@@ -1129,7 +1217,11 @@ async def admin_ui(request: Request):
                 font-size: 14px;
                 font-family: inherit;
             }
-            input[type="text"]:focus, select:focus {
+            textarea {
+                min-height: 86px;
+                resize: vertical;
+            }
+            input[type="text"]:focus, select:focus, textarea:focus {
                 outline: none;
                 border-color: #667eea;
                 box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
@@ -1178,6 +1270,25 @@ async def admin_ui(request: Request):
             }
             .pin-user {
                 color: #666;
+            }
+            .muted {
+                color: #777;
+                font-size: 13px;
+            }
+            .badge {
+                display: inline-block;
+                padding: 2px 8px;
+                border-radius: 12px;
+                background: #e9ecef;
+                color: #555;
+                font-size: 12px;
+                margin-right: 6px;
+            }
+            details summary {
+                cursor: pointer;
+                font-weight: 700;
+                color: #333;
+                margin-bottom: 15px;
             }
             .status {
                 padding: 8px 12px;
@@ -1237,6 +1348,35 @@ async def admin_ui(request: Request):
             </div>
             
             <div class="form-section">
+                <h2 style="font-size: 18px; margin-bottom: 15px; color: #333;">Caller Access</h2>
+                <p class="muted" style="margin-bottom: 15px;">Preferred path for known callers. The app stores the Home Assistant user ID, resolves the display name from Home Assistant, masks phone numbers in this UI, and never displays saved PINs.</p>
+                <div class="form-group">
+                    <label for="callerUser">Home Assistant User:</label>
+                    <select id="callerUser">
+                        <option value="">-- Loading users --</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="callerPhoneNumbers">Phone Numbers (one per line, E.164 preferred):</label>
+                    <textarea id="callerPhoneNumbers" placeholder="+19013027364&#10;+1XXXXXXXXXX"></textarea>
+                </div>
+                <div class="form-group">
+                    <label for="callerPin">Fallback PIN (optional, 4 digits):</label>
+                    <input type="text" id="callerPin" placeholder="1234" maxlength="4" pattern="[0-9]*">
+                </div>
+                <button onclick="addCallerAccess()">Add Caller Access</button>
+                <div class="status" id="callerAccessStatus"></div>
+                <div class="pins-list">
+                    <h3 style="font-size: 16px; margin: 20px 0 15px; color: #333;">Current Caller Access</h3>
+                    <div id="callerAccessList">
+                        <p style="color: #999; text-align: center; padding: 20px;">Loading...</p>
+                    </div>
+                </div>
+            </div>
+
+            <details class="form-section">
+                <summary>Legacy PIN Management</summary>
+                <p class="muted" style="margin-bottom: 15px;">Migration fallback only. Prefer Caller Access for new entries.</p>
                 <div class="form-group">
                     <label for="pin">PIN (4 digits):</label>
                     <input type="text" id="pin" placeholder="1234" maxlength="4" pattern="[0-9]*">
@@ -1249,20 +1389,15 @@ async def admin_ui(request: Request):
                 </div>
                 <button onclick="addPin()">Add PIN</button>
                 <div class="status" id="status"></div>
-            </div>
-
-            <div class="pins-list">
-                <h2 style="font-size: 18px; margin-bottom: 15px; color: #333;">Current PINs</h2>
-                <div id="pinsList">
-                    <p style="color: #999; text-align: center; padding: 20px;">Loading...</p>
-                </div>
-            </div>
+                <p class="muted" style="margin-top: 15px;">Saved legacy PIN values are not displayed. Use Caller Access for new or editable access records.</p>
+            </details>
         </div>
 
         <script>
             const ADMIN_API_BASE = __ADMIN_API_BASE__;
             let appSettings = {};
             let ttsEngines = [];
+            let haUsers = [];
 
             async function loadSettings() {
                 try {
@@ -1411,21 +1546,151 @@ async def admin_ui(request: Request):
                 try {
                     const res = await fetch(`${ADMIN_API_BASE}/users`);
                     const data = await res.json();
-                    const select = document.getElementById('user');
-                    select.innerHTML = '<option value="">-- Select user --</option>';
+                    haUsers = data.users || [];
+                    const selects = [
+                        document.getElementById('user'),
+                        document.getElementById('callerUser')
+                    ];
+                    selects.forEach(select => {
+                        select.innerHTML = '<option value="">-- Select user --</option>';
+                    });
                     if (data.users && data.users.length > 0) {
                         data.users.forEach(user => {
-                            const opt = document.createElement('option');
-                            opt.value = user.id;
-                            opt.textContent = user.name;
-                            select.appendChild(opt);
+                            selects.forEach(select => {
+                                const opt = document.createElement('option');
+                                opt.value = user.id;
+                                opt.textContent = user.name;
+                                select.appendChild(opt);
+                            });
                         });
                     } else {
-                        select.innerHTML = '<option value="">No users found</option>';
+                        selects.forEach(select => {
+                            select.innerHTML = '<option value="">No users found</option>';
+                        });
                     }
                 } catch (err) {
                     console.error('Error loading users:', err);
                     document.getElementById('user').innerHTML = '<option value="">Error loading users</option>';
+                    document.getElementById('callerUser').innerHTML = '<option value="">Error loading users</option>';
+                }
+            }
+
+            async function loadCallerAccess() {
+                try {
+                    const res = await fetch(`${ADMIN_API_BASE}/caller-access`);
+                    const data = await res.json();
+                    const list = document.getElementById('callerAccessList');
+                    list.innerHTML = '';
+
+                    if (!data.callers || data.callers.length === 0) {
+                        list.innerHTML = '<p style="color: #999; text-align: center; padding: 20px;">No caller access records configured yet</p>';
+                        return;
+                    }
+
+                    data.callers.forEach(record => {
+                        const item = document.createElement('div');
+                        item.className = 'pin-item';
+                        const info = document.createElement('div');
+                        info.className = 'pin-info';
+                        const title = document.createElement('strong');
+                        title.textContent = record.display_name || record.ha_user_id;
+                        info.appendChild(title);
+                        const numbers = document.createElement('div');
+                        numbers.className = 'pin-user';
+                        numbers.textContent = (record.masked_phone_numbers || []).join(', ') || 'No phone numbers';
+                        info.appendChild(numbers);
+                        const meta = document.createElement('div');
+                        meta.className = 'muted';
+                        const pinBadge = document.createElement('span');
+                        pinBadge.className = 'badge';
+                        pinBadge.textContent = record.pin_set ? 'PIN set' : 'No PIN';
+                        meta.appendChild(pinBadge);
+                        const sourceBadge = document.createElement('span');
+                        sourceBadge.className = 'badge';
+                        sourceBadge.textContent = record.source === 'admin' ? 'Admin' : 'Config';
+                        meta.appendChild(sourceBadge);
+                        info.appendChild(meta);
+                        item.appendChild(info);
+
+                        if (record.deletable) {
+                            const button = document.createElement('button');
+                            button.className = 'delete';
+                            button.textContent = 'Delete';
+                            button.addEventListener('click', () => deleteCallerAccess(record.index));
+                            item.appendChild(button);
+                        }
+
+                        list.appendChild(item);
+                    });
+                } catch (err) {
+                    console.error('Error loading caller access:', err);
+                    document.getElementById('callerAccessList').innerHTML = '<p style="color: #999; text-align: center;">Error loading caller access</p>';
+                }
+            }
+
+            async function addCallerAccess() {
+                const userId = document.getElementById('callerUser').value;
+                const phoneNumbers = document.getElementById('callerPhoneNumbers').value
+                    .split('\\n')
+                    .map(item => item.trim())
+                    .filter(Boolean);
+                const pin = document.getElementById('callerPin').value.trim();
+                const status = document.getElementById('callerAccessStatus');
+                status.style.display = '';
+
+                if (!userId || phoneNumbers.length === 0) {
+                    status.className = 'status error';
+                    status.textContent = 'Select a user and enter at least one phone number';
+                    return;
+                }
+
+                if (pin && !/^[0-9]{4}$/.test(pin)) {
+                    status.className = 'status error';
+                    status.textContent = 'Fallback PIN must be exactly 4 digits';
+                    return;
+                }
+
+                try {
+                    const res = await fetch(`${ADMIN_API_BASE}/caller-access`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            ha_user_id: userId,
+                            phone_numbers: phoneNumbers,
+                            pin: pin || null
+                        })
+                    });
+
+                    if (res.ok) {
+                        status.className = 'status success';
+                        status.textContent = 'Caller access saved';
+                        document.getElementById('callerUser').value = '';
+                        document.getElementById('callerPhoneNumbers').value = '';
+                        document.getElementById('callerPin').value = '';
+                        setTimeout(() => { status.style.display = 'none'; }, 3000);
+                        loadCallerAccess();
+                    } else {
+                        const error = await res.text();
+                        status.className = 'status error';
+                        status.textContent = 'Error: ' + error;
+                    }
+                } catch (err) {
+                    status.className = 'status error';
+                    status.textContent = 'Error: ' + err.message;
+                }
+            }
+
+            async function deleteCallerAccess(recordIndex) {
+                if (!confirm('Delete this caller access record?')) return;
+                try {
+                    const res = await fetch(`${ADMIN_API_BASE}/caller-access/${recordIndex}`, { method: 'DELETE' });
+                    if (res.ok) {
+                        loadCallerAccess();
+                    } else {
+                        alert('Could not delete caller access record');
+                    }
+                } catch (err) {
+                    alert('Error deleting caller access: ' + err.message);
                 }
             }
 
@@ -1440,22 +1705,30 @@ async def admin_ui(request: Request):
                         return;
                     }
 
-                    let html = '';
+                    list.innerHTML = '';
                     for (const [pin, pinEntry] of Object.entries(data.pins)) {
                         const userId = typeof pinEntry === 'object' ? pinEntry.user_id : pinEntry;
                         const savedName = typeof pinEntry === 'object' ? pinEntry.user_name : null;
                         const userName = savedName || data.userMap?.[userId] || userId;
-                        html += `
-                            <div class="pin-item">
-                                <div class="pin-info">
-                                    <strong>${pin}</strong>
-                                    <div class="pin-user">${userName}</div>
-                                </div>
-                                <button class="delete" onclick="deletePin('${pin}')">Delete</button>
-                            </div>
-                        `;
+                        const item = document.createElement('div');
+                        item.className = 'pin-item';
+                        const info = document.createElement('div');
+                        info.className = 'pin-info';
+                        const title = document.createElement('strong');
+                        title.textContent = 'PIN set';
+                        info.appendChild(title);
+                        const user = document.createElement('div');
+                        user.className = 'pin-user';
+                        user.textContent = userName;
+                        info.appendChild(user);
+                        item.appendChild(info);
+                        const button = document.createElement('button');
+                        button.className = 'delete';
+                        button.textContent = 'Delete';
+                        button.addEventListener('click', () => deletePin(pin));
+                        item.appendChild(button);
+                        list.appendChild(item);
                     }
-                    list.innerHTML = html;
                 } catch (err) {
                     console.error('Error loading pins:', err);
                     document.getElementById('pinsList').innerHTML = '<p style="color: #999; text-align: center;">Error loading PINs</p>';
@@ -1466,16 +1739,17 @@ async def admin_ui(request: Request):
                 const pin = document.getElementById('pin').value.trim();
                 const userId = document.getElementById('user').value;
                 const status = document.getElementById('status');
+                status.style.display = '';
 
                 if (!pin || !userId) {
                     status.className = 'status error';
-                    status.textContent = '❌ Please enter PIN and select a user';
+                    status.textContent = 'Please enter PIN and select a user';
                     return;
                 }
 
                 if (!/^[0-9]{4}$/.test(pin)) {
                     status.className = 'status error';
-                    status.textContent = '❌ PIN must be exactly 4 digits';
+                    status.textContent = 'PIN must be exactly 4 digits';
                     return;
                 }
 
@@ -1490,24 +1764,23 @@ async def admin_ui(request: Request):
 
                     if (res.ok) {
                         status.className = 'status success';
-                        status.textContent = '✓ PIN added successfully';
+                        status.textContent = 'PIN added successfully';
                         document.getElementById('pin').value = '';
                         document.getElementById('user').value = '';
                         setTimeout(() => { status.style.display = 'none'; }, 3000);
-                        loadPins();
                     } else {
                         const error = await res.text();
                         status.className = 'status error';
-                        status.textContent = '❌ Error: ' + error;
+                        status.textContent = 'Error: ' + error;
                     }
                 } catch (err) {
                     status.className = 'status error';
-                    status.textContent = '❌ Error: ' + err.message;
+                    status.textContent = 'Error: ' + err.message;
                 }
             }
 
             async function deletePin(pin) {
-                if (!confirm(`Delete PIN ${pin}?`)) return;
+                if (!confirm('Delete this legacy PIN?')) return;
                 
                 try {
                     const res = await fetch(`${ADMIN_API_BASE}/pins/${pin}`, { method: 'DELETE' });
@@ -1525,8 +1798,8 @@ async def admin_ui(request: Request):
 
             loadSettings();
             loadUsers();
-            loadPins();
-            setInterval(loadPins, 5000);
+            loadCallerAccess();
+            setInterval(loadCallerAccess, 5000);
         </script>
     </body>
     </html>
@@ -1666,6 +1939,60 @@ async def delete_pin(pin: str, request: Request):
             return {"success": True}
     
     return JSONResponse({"error": "PIN not found"}, status_code=404)
+
+
+@app.get("/admin/api/caller-access")
+async def get_caller_access(request: Request):
+    """Get caller access records without exposing full phone numbers or PINs."""
+    require_ingress(request)
+    users, error = await fetch_ha_users()
+    user_map = {user["id"]: user["name"] for user in users}
+    if error:
+        print(f"Could not fetch user names for caller access list: {error}")
+
+    config_records = [
+        caller_record_display(record, None, "config", user_map)
+        for record in load_config_caller_identity_records()
+        if isinstance(record, dict)
+    ]
+    admin_records = [
+        caller_record_display(record, index, "admin", user_map)
+        for index, record in enumerate(load_admin_caller_identity_records())
+        if isinstance(record, dict)
+    ]
+    return {"callers": config_records + admin_records}
+
+
+@app.post("/admin/api/caller-access")
+async def add_caller_access(
+    caller_request: CallerAccessRequest,
+    request: Request,
+):
+    """Add an admin-managed unified caller access record."""
+    require_ingress(request)
+    record, error = normalize_caller_access_request(caller_request)
+    if error:
+        return JSONResponse({"error": error}, status_code=400)
+
+    callers = load_admin_caller_identity_records()
+    callers.append(record)
+    if save_admin_caller_identity_records(callers):
+        return {"success": True}
+    return JSONResponse({"error": "Could not save caller access"}, status_code=500)
+
+
+@app.delete("/admin/api/caller-access/{record_index}")
+async def delete_caller_access(record_index: int, request: Request):
+    """Delete an admin-managed caller access record."""
+    require_ingress(request)
+    callers = load_admin_caller_identity_records()
+    if record_index < 0 or record_index >= len(callers):
+        return JSONResponse({"error": "Caller access record not found"}, status_code=404)
+
+    callers.pop(record_index)
+    if save_admin_caller_identity_records(callers):
+        return {"success": True}
+    return JSONResponse({"error": "Could not save caller access"}, status_code=500)
 
 
 # Twilio webhook endpoints

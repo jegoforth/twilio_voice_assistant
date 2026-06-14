@@ -131,7 +131,7 @@ callers:
     pin: "5678"
 ```
 
-The canonical `callers` list is the migration target for caller identity. Each record requires `ha_user_id` and one or more `phone_numbers`; it can also include an optional fallback `pin` and optional `name`. Runtime greetings resolve the Home Assistant user display name from `ha_user_id` when available. The optional configured `name` is only a fallback when Home Assistant user lookup fails. The legacy `allowed_callers` list and admin PIN UI still work during migration.
+The canonical `callers` list is the migration target for caller identity. Each record requires `ha_user_id` and one or more `phone_numbers`; it can also include an optional fallback `pin` and optional `name`. Runtime greetings resolve the Home Assistant user display name from `ha_user_id` when available. The optional configured `name` is only a fallback when Home Assistant user lookup fails. Caller Access stores admin-managed caller records in `/share/twilio_voice_assistant/callers.json` and merges them with add-on config `callers` at runtime. The legacy `allowed_callers` list and old PIN map still work during migration.
 
 Legacy `allowed_callers` single-number entries using `phone_number` still work. `name` is optional there too, but new configuration should use `callers`.
 
@@ -188,7 +188,20 @@ Gather mode and Conversation Relay mode use separate TTS configuration:
 - Do not use Home Assistant TTS engine IDs as Conversation Relay `ttsProvider` values. `block_elevenlabs` is valid only as a Home Assistant TTS engine ID, not as a Twilio Conversation Relay provider.
 - For the validated v2 path, Conversation Relay `ttsProvider` should be `ElevenLabs` and `voice` should be `h8eW5xfRUGVJrZhAFxqK`.
 
-The add-on schema accepts `auth_mode`, `unknown_caller_policy`, `callers`, and legacy `allowed_callers` from `twilio_voice_assistant/config.json`. The preferred caller shape is one Home Assistant user ID with a `phone_numbers` list and optional fallback `pin` in `callers`; `name` is optional. The legacy `allowed_callers[*].phone_number` single-value shape remains supported for backward compatibility, and `allowed_callers[*].name` is optional so saved options are not blocked during migration. Caller whitelist management is config-based for now; use the standard Home Assistant add-on options/YAML editor.
+The add-on schema accepts `auth_mode`, `unknown_caller_policy`, `callers`, and legacy `allowed_callers` from `twilio_voice_assistant/config.json`. The preferred caller shape is one Home Assistant user ID with a `phone_numbers` list and optional fallback `pin` in `callers`; `name` is optional. The legacy `allowed_callers[*].phone_number` single-value shape remains supported for backward compatibility, and `allowed_callers[*].name` is optional so saved options are not blocked during migration. Caller Access is the preferred admin model for new entries.
+
+Caller Access admin behavior:
+
+- Uses the existing Home Assistant user dropdown.
+- Stores only `ha_user_id` as the stable key.
+- Resolves and displays Home Assistant user display names dynamically.
+- Allows one or more phone numbers per user.
+- Allows an optional 4-digit fallback PIN per user.
+- Shows existing records with masked phone numbers only.
+- Shows only `PIN set` or `No PIN`; PIN values are write-only in the UI.
+- Allows deleting admin-managed caller records.
+- Shows add-on config `callers` records as config-sourced records.
+- Keeps legacy PIN management collapsed and de-emphasized.
 
 HA user IDs in `callers` or legacy `allowed_callers` should not include angle brackets. Use `5e738...`, not `<5e738...>`.
 
@@ -311,7 +324,7 @@ Stable v2 baseline:
 - Conversation Relay is much faster than the previous Gather/TTS/audio-file path.
 - This version should be treated as the known-good baseline before adding new features.
 - Future changes should preserve this path unless explicitly replacing it.
-- Do not reintroduce custom allowed-caller admin UI work yet; allowed caller management remains config-based for now.
+- Caller Access replaces the earlier stopped allowed-caller UI attempt with a focused unified caller management section. Add-on config `callers` remains supported.
 
 Known caller flow:
 

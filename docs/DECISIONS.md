@@ -299,13 +299,15 @@ Validation note:
 
 The repository-installed add-on starts successfully. The admin UI was restored and is functional again. DTMF PIN authentication works. Allowed caller configuration was tested successfully through the standard add-on config path. A known caller matched `allowed_callers`, skipped PIN, and entered the conversation flow. An unlisted caller with PIN fallback enabled was prompted for PIN; one wrong PIN was rejected as expected, and one correct PIN was accepted and entered conversation as expected. Gather compatibility mode remains functional.
 
+Conversation Relay mode was validated successfully. Conversation Relay uses ElevenLabs successfully with the confirmed Elspeth ElevenLabs voice ID `h8eW5xfRUGVJrZhAFxqK`. Conversation Relay sends caller transcript text to Home Assistant Conversation, Home Assistant Conversation returns a response, and the assistant verified something in the house correctly. The call ended correctly through the end-call handling. Conversation Relay latency is much faster than the previous Gather/TTS/audio-file path.
+
 The attempted inline admin UI caller-management work was reverted/stopped. Allowed caller management remains config-based for now. Do not reintroduce the custom allowed-caller admin UI at this stage. Future caller management should be handled by a HACS options flow or separately designed UI.
 
-Next validation target: Conversation Relay mode with caller whitelist authentication, and ElevenLabs TTS through Twilio Conversation Relay if supported by the active Twilio account.
+The next validation focus should be hardening Conversation Relay websocket validation, Twilio webhook signature validation, and interruption/barge-in behavior.
 
 HA user IDs in `allowed_callers` should not include angle brackets. Use `5e738...`, not `<5e738...>`.
 
-Conversation Relay TTS settings are separate from Gather/Home Assistant TTS settings. Home Assistant TTS engine IDs such as `block_elevenlabs` must not be used as Conversation Relay `ttsProvider` values. The runtime now limits Conversation Relay providers to `ElevenLabs`, `Google`, or `Amazon`, falls back to `ElevenLabs` for invalid values, and omits `voice` when `conversation_relay_voice` is blank or `default`.
+Conversation Relay TTS settings are separate from Gather/Home Assistant TTS settings. Home Assistant TTS engine IDs such as `block_elevenlabs` must not be used as Conversation Relay `ttsProvider` values. The runtime now limits Conversation Relay providers to `ElevenLabs`, `Google`, or `Amazon`, falls back to `ElevenLabs` for invalid values, and omits `voice` when `conversation_relay_voice` is blank or `default`. For the validated v2 path, Conversation Relay `ttsProvider` should be `ElevenLabs` and `voice` should be `h8eW5xfRUGVJrZhAFxqK`.
 
 ## Decision 017: Treat ARCHITECTURE.md as the stable guardrail document
 
@@ -347,7 +349,7 @@ Consequences:
 5. Return Home Assistant response text to Conversation Relay. **Done.**
 6. Add caller whitelist authentication mapped to Home Assistant users. **Done.**
 7. Keep PIN authentication as fallback/legacy behavior. **Done.**
-8. Validate Conversation Relay with ElevenLabs TTS configuration through Twilio. **Next.**
+8. Validate Conversation Relay with ElevenLabs TTS configuration through Twilio. **Done.**
 9. Add latency instrumentation. **Done for logs; diagnostics remain future work.**
 10. Structure the repository as a valid Home Assistant add-on repository. **Done.**
 11. Move configuration and diagnostics into a future HACS integration. **Deferred.**

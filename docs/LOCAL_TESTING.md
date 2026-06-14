@@ -13,6 +13,14 @@ Use this checklist for the next v2.0.0 validation pass. Keep test logs free of f
 - One wrong PIN was rejected as expected.
 - One correct PIN was accepted and entered conversation as expected.
 - Gather compatibility mode remains functional.
+- Conversation Relay mode works.
+- Conversation Relay uses ElevenLabs successfully.
+- Conversation Relay uses the Elspeth ElevenLabs voice ID successfully: `h8eW5xfRUGVJrZhAFxqK`.
+- Conversation Relay sends caller transcript text to Home Assistant Conversation.
+- Home Assistant Conversation returns a response.
+- The assistant verified something in the house correctly.
+- The call ended correctly through the end-call handling.
+- Conversation Relay latency is much faster than the previous Gather/TTS/audio-file path.
 
 ## Startup
 
@@ -78,10 +86,12 @@ allowed_callers:
 - `voice_bridge_mode: conversation_relay` returns Conversation Relay TwiML only after caller whitelist match or successful PIN validation.
 - Known failure to avoid: `block_elevenlabs` is a Home Assistant TTS engine ID and must not be used as Conversation Relay `ttsProvider`.
 - Conversation Relay `ttsProvider` defaults to `ElevenLabs` and is limited to `ElevenLabs`, `Google`, or `Amazon`.
+- Conversation Relay `ttsProvider` should be `ElevenLabs`.
+- Conversation Relay `voice` should use `h8eW5xfRUGVJrZhAFxqK` for Elspeth.
 - Conversation Relay TwiML omits `voice` when `conversation_relay_voice` is blank or `default`.
 - Conversation Relay websocket sends final transcript text to Home Assistant Conversation without local TTS generation.
 - Conversation Relay mode does not write caller audio, generated TTS audio, transient transcripts, or transient response text to disk.
-- Next validation target: Conversation Relay mode with caller whitelist authentication and ElevenLabs TTS through Twilio Conversation Relay if supported by the active Twilio account.
+- Conversation Relay mode with caller whitelist authentication and ElevenLabs TTS through Twilio Conversation Relay is validated on the active Twilio account.
 
 ## Security TODOs Before Production
 

@@ -172,18 +172,19 @@ Conversation Relay prototype:
 ```yaml
 voice_bridge_mode: conversation_relay
 conversation_relay_tts_provider: ElevenLabs
-conversation_relay_voice: ""
+conversation_relay_voice: h8eW5xfRUGVJrZhAFxqK
 conversation_relay_transcription_provider: Deepgram
 conversation_relay_language: en-US
 ```
 
-Leave `conversation_relay_voice` empty until the Twilio account has a confirmed Conversation Relay voice ID. The value `default` is treated as blank and the app omits the `voice` attribute from Conversation Relay TwiML.
+Use `conversation_relay_voice: h8eW5xfRUGVJrZhAFxqK` for the confirmed Elspeth ElevenLabs voice. Leave `conversation_relay_voice` empty only when Twilio should use its provider default. The value `default` is treated as blank and the app omits the `voice` attribute from Conversation Relay TwiML.
 
 Gather mode and Conversation Relay mode use separate TTS configuration:
 
 - Gather mode uses Home Assistant TTS settings from the admin UI, such as a Home Assistant TTS engine ID like `block_elevenlabs`.
 - Conversation Relay mode uses Twilio Conversation Relay TTS settings from add-on config. `conversation_relay_tts_provider` must be a Twilio-supported provider: `ElevenLabs`, `Google`, or `Amazon`.
 - Do not use Home Assistant TTS engine IDs as Conversation Relay `ttsProvider` values. `block_elevenlabs` is valid only as a Home Assistant TTS engine ID, not as a Twilio Conversation Relay provider.
+- For the validated v2 path, Conversation Relay `ttsProvider` should be `ElevenLabs` and `voice` should be `h8eW5xfRUGVJrZhAFxqK`.
 
 The add-on schema accepts `auth_mode`, `unknown_caller_policy`, and `allowed_callers` from `twilio_voice_assistant/config.json`. The preferred caller shape is one Home Assistant user with a `phone_numbers` list. The legacy `phone_number` single-value shape remains supported for backward compatibility. Caller whitelist management is config-based for now; use the standard Home Assistant add-on options/YAML editor.
 
@@ -324,6 +325,7 @@ Current generated TwiML shape:
       welcomeGreeting="Hello USER. What would you like to do?"
       language="en-US"
       ttsProvider="ElevenLabs"
+      voice="h8eW5xfRUGVJrZhAFxqK"
       transcriptionProvider="Deepgram">
       <Parameter name="user_id" value="..."/>
       <Parameter name="user_name" value="..."/>
@@ -333,9 +335,11 @@ Current generated TwiML shape:
 </Response>
 ```
 
-The app includes `voice="..."` only when `conversation_relay_voice` is configured and is not `default`.
+The app includes `voice="..."` only when `conversation_relay_voice` is configured and is not `default`. The confirmed Elspeth voice ID is `h8eW5xfRUGVJrZhAFxqK`.
 
-TODO: Confirm the final supported Conversation Relay provider, language, voice, interruption, and websocket validation details against the active Twilio account before treating this as production behavior.
+Validated on the active Twilio account: Conversation Relay starts after caller whitelist authentication or successful PIN fallback, uses ElevenLabs with the Elspeth voice ID, sends final caller transcript text to Home Assistant Conversation, receives a Home Assistant response, speaks the response through Conversation Relay, and ends the call correctly through the end-call handling. Latency is much faster than the Gather/TTS/audio-file path.
+
+TODO: Confirm interruption/barge-in behavior and websocket validation details before treating this as production behavior.
 
 ## Conversation Relay Websocket Contract
 

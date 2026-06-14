@@ -1,6 +1,6 @@
 {
   "name": "Twilio Voice Assistant",
-  "version": "1.3.9",
+  "version": "1.3.10",
   "slug": "twilio_voice_assistant",
   "description": "Twilio webhook service with caller identity/PIN fallback authentication, preferred Conversation Relay text-only bridge, deprecated Gather compatibility fallback, and Home Assistant Conversation integration.",
   "arch": ["amd64", "aarch64"],
@@ -50,7 +50,7 @@
     ],
     "allowed_callers": [
       {
-        "name": "str",
+        "name": "str?",
         "phone_number": "str?",
         "phone_numbers": ["str?"],
         "ha_user_id": "str"

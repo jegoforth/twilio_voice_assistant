@@ -290,6 +290,8 @@ The implementation reads canonical `callers` and legacy `allowed_callers` from t
 
 `ha_user_id` is the required stable identity key for canonical `callers`. Configured `name` is optional and retained only as a fallback label. When the app matches a known caller or accepts a unified caller PIN, it resolves the Home Assistant user display name from `ha_user_id`; if lookup fails, it falls back to configured `name`, then `ha_user_id`.
 
+Schema note: legacy `allowed_callers[*].name` is also optional so Home Assistant can save existing options during the migration from `allowed_callers` to canonical `callers`.
+
 Startup configuration logging now runs from a FastAPI startup hook instead of module import so deployment logs clearly show the active authentication and bridge configuration when the app starts.
 
 Caller whitelist parsing now supports the preferred multi-number shape, where one Home Assistant user has a `phone_numbers` list. The legacy single-value `phone_number` shape remains supported and is normalized into the same flat lookup table internally.

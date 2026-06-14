@@ -62,6 +62,7 @@ Use this checklist for the next v2.0.0 validation pass. Keep test logs free of f
 - The active schema includes `callers`.
 - The active schema includes `allowed_callers`.
 - After schema changes, the add-on version is bumped and Home Assistant shows the new version after repository refresh or reinstall.
+- Legacy `allowed_callers[*].name` is optional in the schema so existing options can be saved while migrating to `callers`.
 - Preferred unified caller identity configuration works from the standard add-on options/YAML editor:
 
 ```yaml

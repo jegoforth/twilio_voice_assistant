@@ -74,8 +74,8 @@ unknown_caller_policy: reject
 callers:
   - ha_user_id: 5e738examplehomeassistantuserid
     phone_numbers:
-      - "+19013027364"
-      - "+1XXXXXXXXXX"
+      - "+15551234567"
+      - "+15559876543"
     pin: "1234"
 ```
 
@@ -86,7 +86,7 @@ callers:
   - name: Eric Goforth
     ha_user_id: 5e738examplehomeassistantuserid
     phone_numbers:
-      - "+19013027364"
+      - "+15551234567"
 ```
 
 - Legacy `allowed_callers` single-number caller whitelist configuration still works:
@@ -97,7 +97,7 @@ unknown_caller_policy: reject
 allowed_callers:
   - name: Eric Goforth
     ha_user_id: 5e738examplehomeassistantuserid
-    phone_number: "+19013027364"
+    phone_number: "+15551234567"
 ```
 
 - HA user IDs in `callers` or legacy `allowed_callers` should not include angle brackets. Use `5e738...`, not `<5e738...>`.
@@ -121,7 +121,8 @@ allowed_callers:
 - Adding a caller with multiple phone numbers works.
 - Adding a caller with a fallback PIN works.
 - Existing admin-managed `callers` records show in the Caller Access list.
-- Existing add-on config `callers` records show in the Caller Access list as config-sourced records.
+- Existing add-on config `callers` records show in the Caller Access list as read-only config-sourced records.
+- Caller Access is the preferred editable source; add-on config `callers` remains supported during migration but should not be edited in two places long term.
 - Saved caller records show Home Assistant display names and masked phone numbers only.
 - Saved caller records show only `PIN set` or `No PIN`; PIN values are not displayed.
 - Deleting an admin-managed caller access record works.

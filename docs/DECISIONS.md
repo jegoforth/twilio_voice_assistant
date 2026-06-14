@@ -272,8 +272,8 @@ unknown_caller_policy: reject | pin_fallback
 callers:
   - ha_user_id: 5e738examplehomeassistantuserid
     phone_numbers:
-      - "+19013027364"
-      - "+1XXXXXXXXXX"
+      - "+15551234567"
+      - "+15559876543"
     pin: "1234"
 ```
 
@@ -292,7 +292,7 @@ The implementation reads canonical `callers` and legacy `allowed_callers` from t
 
 Schema note: legacy `allowed_callers[*].name` is also optional so Home Assistant can save existing options during the migration from `allowed_callers` to canonical `callers`.
 
-Caller Access admin UI is now the preferred management model for unified caller identity. It writes admin-managed `callers` records to `/share/twilio_voice_assistant/callers.json`, stores `ha_user_id` as the stable key, resolves the Home Assistant display name dynamically, masks phone numbers in the UI, and treats PIN values as write-only. Add-on config `callers` are still loaded and shown as config-sourced records, while legacy `allowed_callers` and the old PIN map remain runtime migration/fallback paths.
+Caller Access admin UI is now the preferred management model for unified caller identity. It writes admin-managed `callers` records to `/share/twilio_voice_assistant/callers.json`, stores `ha_user_id` as the stable key, resolves the Home Assistant display name dynamically, masks phone numbers in the UI, and treats PIN values as write-only. Add-on config `callers` are still loaded and shown as read-only config-sourced records, while legacy `allowed_callers` and the old PIN map remain runtime migration/fallback paths. During migration, callers may exist in both add-on config and Caller Access storage; the long-term direction is to use Caller Access as the editable source and stop editing caller identity in two places.
 
 Startup configuration logging now runs from a FastAPI startup hook instead of module import so deployment logs clearly show the active authentication and bridge configuration when the app starts.
 
@@ -300,7 +300,7 @@ Caller whitelist parsing now supports the preferred multi-number shape, where on
 
 Caller whitelist management is no longer config-only. The previous broken inline allowed-caller form was not reintroduced; instead, the admin page now has a focused Caller Access section backed by `/share/twilio_voice_assistant/callers.json`. Future Home Assistant-native management can still move into a HACS options flow later, but the add-on admin page now has a safe migration UI for day-to-day caller access.
 
-The earlier issue was add-on schema/config visibility, not runtime caller matching. The active add-on manifest is `twilio_voice_assistant/config.json`, and `callers` plus legacy `allowed_callers` are present in that schema. The Caller Access UI avoids writing Home Assistant add-on options directly; it writes admin-managed caller records to `/share` and merges them with configured caller records at runtime.
+The earlier issue was add-on schema/config visibility, not runtime caller matching. The active add-on manifest is `twilio_voice_assistant/config.json`, and `callers` plus legacy `allowed_callers` are present in that schema. The Caller Access UI avoids writing Home Assistant add-on options directly; it writes admin-managed caller records to `/share` and merges them with configured caller records at runtime. This intentionally creates a temporary two-source migration model; after recreating records in Caller Access, remove duplicates from add-on config to avoid confusion.
 
 Validation note:
 

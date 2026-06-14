@@ -139,7 +139,7 @@ From the admin page:
    - Optionally enter a 4 digit fallback PIN.
    - Click **Add Caller Access**.
 
-Caller Access stores `ha_user_id` as the stable key and resolves the display name from Home Assistant. Existing records show masked phone numbers and only `PIN set` or `No PIN`; saved PIN values are not displayed. Legacy PIN management is collapsed and kept only for migration compatibility. Assistant settings and admin-managed caller access are stored in `/share/twilio_voice_assistant` so they survive add-on rebuilds.
+Caller Access stores `ha_user_id` as the stable key and resolves the display name from Home Assistant. Existing records show masked phone numbers and only `PIN set` or `No PIN`; saved PIN values are not displayed. Add-on config `callers` records remain supported during migration and appear as read-only config records in the UI. Caller Access is the preferred editable source, so avoid managing the same caller in both places long term. Legacy PIN management is collapsed and kept only for migration compatibility. Assistant settings and admin-managed caller access are stored in `/share/twilio_voice_assistant` so they survive add-on rebuilds.
 
 ## Test
 

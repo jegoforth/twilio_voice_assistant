@@ -200,7 +200,8 @@ Caller Access admin behavior:
 - Shows existing records with masked phone numbers only.
 - Shows only `PIN set` or `No PIN`; PIN values are write-only in the UI.
 - Allows deleting admin-managed caller records.
-- Shows add-on config `callers` records as config-sourced records.
+- Shows add-on config `callers` records as read-only config-sourced records.
+- Treats Caller Access as the preferred editable source; add-on config `callers` remains supported during migration but should not be edited in two places long term.
 - Keeps legacy PIN management collapsed and de-emphasized.
 
 HA user IDs in `callers` or legacy `allowed_callers` should not include angle brackets. Use `5e738...`, not `<5e738...>`.

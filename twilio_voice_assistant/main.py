@@ -1349,7 +1349,7 @@ async def admin_ui(request: Request):
             
             <div class="form-section">
                 <h2 style="font-size: 18px; margin-bottom: 15px; color: #333;">Caller Access</h2>
-                <p class="muted" style="margin-bottom: 15px;">Preferred path for known callers. The app stores the Home Assistant user ID, resolves the display name from Home Assistant, masks phone numbers in this UI, and never displays saved PINs.</p>
+                <p class="muted" style="margin-bottom: 15px;">Preferred path for known callers. Add new or editable users here. Add-on config caller records are still honored during migration and appear below as read-only Config records.</p>
                 <div class="form-group">
                     <label for="callerUser">Home Assistant User:</label>
                     <select id="callerUser">
@@ -1358,7 +1358,7 @@ async def admin_ui(request: Request):
                 </div>
                 <div class="form-group">
                     <label for="callerPhoneNumbers">Phone Numbers (one per line, E.164 preferred):</label>
-                    <textarea id="callerPhoneNumbers" placeholder="+19013027364&#10;+1XXXXXXXXXX"></textarea>
+                    <textarea id="callerPhoneNumbers" placeholder="+15551234567&#10;+15559876543"></textarea>
                 </div>
                 <div class="form-group">
                     <label for="callerPin">Fallback PIN (optional, 4 digits):</label>
@@ -1607,7 +1607,7 @@ async def admin_ui(request: Request):
                         meta.appendChild(pinBadge);
                         const sourceBadge = document.createElement('span');
                         sourceBadge.className = 'badge';
-                        sourceBadge.textContent = record.source === 'admin' ? 'Admin' : 'Config';
+                        sourceBadge.textContent = record.source === 'admin' ? 'Caller Access' : 'Config read-only';
                         meta.appendChild(sourceBadge);
                         info.appendChild(meta);
                         item.appendChild(info);

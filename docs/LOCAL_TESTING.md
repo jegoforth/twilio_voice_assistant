@@ -27,6 +27,7 @@ Use this checklist for the next v2.0.0 validation pass. Keep test logs free of f
 - A known caller in `allowed_callers` reaches `/start_session` without PIN.
 - A known caller configured with preferred `phone_numbers` reaches `/start_session` from each listed number.
 - A known caller configured with legacy `phone_number` still reaches `/start_session`.
+- The admin UI can add and delete an allowed caller with multiple phone numbers, and a newly added caller can authenticate without restarting the add-on.
 - Caller numbers are masked in logs.
 
 ## Bridge Modes
@@ -41,4 +42,4 @@ Use this checklist for the next v2.0.0 validation pass. Keep test logs free of f
 
 - Add Twilio webhook signature validation.
 - Add Conversation Relay websocket validation.
-- Decide whether allowed caller management belongs in the add-on admin UI or the future HACS options flow.
+- Validate Twilio webhook and Conversation Relay websocket signatures before production.

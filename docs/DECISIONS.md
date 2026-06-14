@@ -285,15 +285,13 @@ allowed_callers:
 
 Implementation note:
 
-The first implementation reads `allowed_callers` from add-on configuration, normalizes common Twilio `From` values to E.164, logs masked caller context, and starts the selected bridge mode only after a whitelist match or successful PIN fallback.
-
-Caller whitelist administration is not yet exposed in the admin UI.
+The implementation reads `allowed_callers` from add-on configuration and from the Ingress-protected admin UI store at `/share/twilio_voice_assistant/allowed_callers.json`. Both sources are normalized into the same flat phone-number lookup, logs use masked caller context, and the selected bridge mode starts only after a whitelist match or successful PIN fallback.
 
 Startup configuration logging now runs from a FastAPI startup hook instead of module import so deployment logs clearly show the active authentication and bridge configuration when the app starts.
 
 Caller whitelist parsing now supports the preferred multi-number shape, where one Home Assistant user has a `phone_numbers` list. The legacy single-value `phone_number` shape remains supported and is normalized into the same flat lookup table internally.
 
-The Home Assistant add-on schema can represent the nested `phone_numbers` list, but nested list-of-record editing may be awkward in the normal add-on configuration UI. Allowed caller management should stay config-file based for now; a dedicated admin UI or future options flow should be proposed separately before implementation.
+The Home Assistant add-on schema can represent the nested `phone_numbers` list, but nested list-of-record editing is awkward in the normal add-on configuration UI. The lightweight admin UI now manages saved allowed callers without requiring direct YAML editing, while add-on configuration remains available for advanced/manual deployments.
 
 ## Decision 017: Treat ARCHITECTURE.md as the stable guardrail document
 

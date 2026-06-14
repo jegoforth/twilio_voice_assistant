@@ -179,7 +179,7 @@ conversation_relay_language: en-US
 
 Leave `conversation_relay_voice` empty until the Twilio account has a confirmed Conversation Relay voice ID.
 
-The add-on schema accepts `auth_mode`, `unknown_caller_policy`, and `allowed_callers`. The preferred caller shape is one Home Assistant user with a `phone_numbers` list. The legacy `phone_number` single-value shape remains supported for backward compatibility. Caller whitelist management is configuration-file based in this phase; an admin UI for allowed callers is still future work.
+The add-on schema accepts `auth_mode`, `unknown_caller_policy`, and `allowed_callers`. The preferred caller shape is one Home Assistant user with a `phone_numbers` list. The legacy `phone_number` single-value shape remains supported for backward compatibility. The add-on admin UI can manage allowed callers and stores them at `/share/twilio_voice_assistant/allowed_callers.json`; direct add-on configuration remains available for advanced/manual deployments.
 
 ## Authentication Call Flows
 

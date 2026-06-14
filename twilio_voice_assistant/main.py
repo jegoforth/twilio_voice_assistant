@@ -100,6 +100,7 @@ if missing_vars:
 
 PIN_MAP_FILE = f"{DATA_DIR}/pin_map.json"
 SETTINGS_FILE = f"{DATA_DIR}/settings.json"
+ALLOWED_CALLERS_FILE = f"{DATA_DIR}/allowed_callers.json"
 
 
 def log_timing(event: str, **fields):
@@ -160,14 +161,8 @@ def caller_phone_numbers(caller: dict) -> list[str]:
     return [number for number in raw_numbers if isinstance(number, str)]
 
 
-def load_allowed_callers():
+def normalize_allowed_callers(callers):
     """Parse allowed callers into a flat phone-number lookup."""
-    try:
-        callers = json.loads(ALLOWED_CALLERS_JSON)
-    except Exception as e:
-        print(f"WARNING: Could not parse allowed_callers: {e}")
-        return [], 0
-
     if not isinstance(callers, list):
         print("WARNING: allowed_callers must be a list; ignoring configured value")
         return [], 0
@@ -199,6 +194,81 @@ def load_allowed_callers():
     return normalized_callers, valid_caller_records
 
 
+def load_config_allowed_callers():
+    try:
+        callers = json.loads(ALLOWED_CALLERS_JSON)
+    except Exception as e:
+        print(f"WARNING: Could not parse allowed_callers: {e}")
+        return [], 0
+    return normalize_allowed_callers(callers)
+
+
+def load_saved_allowed_callers():
+    try:
+        if os.path.exists(ALLOWED_CALLERS_FILE):
+            with open(ALLOWED_CALLERS_FILE, "r") as f:
+                callers = json.load(f)
+            return normalize_allowed_callers(callers)
+    except Exception as e:
+        print(f"WARNING: Could not load allowed callers from file: {e}")
+    return [], 0
+
+
+def load_allowed_callers():
+    config_callers, config_count = load_config_allowed_callers()
+    saved_callers, saved_count = load_saved_allowed_callers()
+    return config_callers + saved_callers, config_count + saved_count
+
+
+def load_saved_allowed_caller_records():
+    try:
+        if os.path.exists(ALLOWED_CALLERS_FILE):
+            with open(ALLOWED_CALLERS_FILE, "r") as f:
+                callers = json.load(f)
+            return callers if isinstance(callers, list) else []
+    except Exception as e:
+        print(f"WARNING: Could not load allowed caller records: {e}")
+    return []
+
+
+def normalize_allowed_caller_record(caller):
+    if not isinstance(caller, dict):
+        return None
+
+    ha_user_id = (caller.get("ha_user_id") or "").strip()
+    if not ha_user_id:
+        return None
+
+    caller_name = (caller.get("name") or ha_user_id).strip() or ha_user_id
+    normalized_numbers = []
+    seen_numbers = set()
+    for raw_number in caller_phone_numbers(caller):
+        normalized_number = normalize_phone_number(raw_number)
+        if normalized_number and normalized_number not in seen_numbers:
+            normalized_numbers.append(normalized_number)
+            seen_numbers.add(normalized_number)
+
+    if not normalized_numbers:
+        return None
+
+    return {
+        "name": caller_name,
+        "ha_user_id": ha_user_id,
+        "phone_numbers": normalized_numbers,
+    }
+
+
+def save_allowed_caller_records(callers):
+    try:
+        os.makedirs(DATA_DIR, exist_ok=True)
+        with open(ALLOWED_CALLERS_FILE, "w") as f:
+            json.dump(callers, f, indent=2)
+        return True
+    except Exception as e:
+        print(f"ERROR: Could not save allowed callers: {e}")
+        return False
+
+
 ALLOWED_CALLERS, ALLOWED_CALLER_RECORD_COUNT = load_allowed_callers()
 
 
@@ -206,7 +276,8 @@ def find_allowed_caller(from_number: str | None):
     normalized_from = normalize_phone_number(from_number)
     if not normalized_from:
         return None, normalized_from
-    for caller in ALLOWED_CALLERS:
+    allowed_callers, _ = load_allowed_callers()
+    for caller in allowed_callers:
         if caller["phone_number"] == normalized_from:
             return caller, normalized_from
     return None, normalized_from
@@ -245,6 +316,12 @@ class PinRequest(BaseModel):
     pin: str
     user_id: str
     user_name: str | None = None
+
+
+class AllowedCallerRequest(BaseModel):
+    name: str
+    ha_user_id: str
+    phone_numbers: list[str]
 
 
 class SettingsRequest(BaseModel):
@@ -1014,7 +1091,7 @@ async def admin_ui(request: Request):
                 color: #555;
                 font-size: 14px;
             }
-            input[type="text"], select {
+            input[type="text"], textarea, select {
                 width: 100%;
                 padding: 10px;
                 border: 1px solid #ddd;
@@ -1022,7 +1099,11 @@ async def admin_ui(request: Request):
                 font-size: 14px;
                 font-family: inherit;
             }
-            input[type="text"]:focus, select:focus {
+            textarea {
+                min-height: 70px;
+                resize: vertical;
+            }
+            input[type="text"]:focus, textarea:focus, select:focus {
                 outline: none;
                 border-color: #667eea;
                 box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
@@ -1150,12 +1231,49 @@ async def admin_ui(request: Request):
                     <p style="color: #999; text-align: center; padding: 20px;">Loading...</p>
                 </div>
             </div>
+
+            <div class="form-section">
+                <h2 style="font-size: 18px; margin-bottom: 15px; color: #333;">Allowed Callers</h2>
+                <div class="form-group">
+                    <label for="callerName">Caller Name:</label>
+                    <input type="text" id="callerName" placeholder="Eric Goforth">
+                </div>
+                <div class="form-group">
+                    <label for="callerUser">Home Assistant User:</label>
+                    <select id="callerUser">
+                        <option value="">-- Loading users --</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="callerPhoneNumbers">Phone Numbers (one per line, E.164 preferred):</label>
+                    <textarea id="callerPhoneNumbers" placeholder="+19013027364&#10;+1XXXXXXXXXX"></textarea>
+                </div>
+                <button onclick="addAllowedCaller()">Add Allowed Caller</button>
+                <div class="status" id="allowedCallerStatus"></div>
+            </div>
+
+            <div class="pins-list">
+                <h2 style="font-size: 18px; margin-bottom: 15px; color: #333;">Current Allowed Callers</h2>
+                <div id="allowedCallersList">
+                    <p style="color: #999; text-align: center; padding: 20px;">Loading...</p>
+                </div>
+            </div>
         </div>
 
         <script>
             const ADMIN_API_BASE = __ADMIN_API_BASE__;
             let appSettings = {};
             let ttsEngines = [];
+
+            function escapeHtml(value) {
+                return String(value ?? '').replace(/[&<>"']/g, (char) => ({
+                    '&': '&amp;',
+                    '<': '&lt;',
+                    '>': '&gt;',
+                    '"': '&quot;',
+                    "'": '&#39;'
+                }[char]));
+            }
 
             async function loadSettings() {
                 try {
@@ -1305,20 +1423,25 @@ async def admin_ui(request: Request):
                     const res = await fetch(`${ADMIN_API_BASE}/users`);
                     const data = await res.json();
                     const select = document.getElementById('user');
+                    const callerSelect = document.getElementById('callerUser');
                     select.innerHTML = '<option value="">-- Select user --</option>';
+                    callerSelect.innerHTML = '<option value="">-- Select user --</option>';
                     if (data.users && data.users.length > 0) {
                         data.users.forEach(user => {
                             const opt = document.createElement('option');
                             opt.value = user.id;
                             opt.textContent = user.name;
                             select.appendChild(opt);
+                            callerSelect.appendChild(opt.cloneNode(true));
                         });
                     } else {
                         select.innerHTML = '<option value="">No users found</option>';
+                        callerSelect.innerHTML = '<option value="">No users found</option>';
                     }
                 } catch (err) {
                     console.error('Error loading users:', err);
                     document.getElementById('user').innerHTML = '<option value="">Error loading users</option>';
+                    document.getElementById('callerUser').innerHTML = '<option value="">Error loading users</option>';
                 }
             }
 
@@ -1412,6 +1535,96 @@ async def admin_ui(request: Request):
                 }
             }
 
+            async function loadAllowedCallers() {
+                try {
+                    const res = await fetch(`${ADMIN_API_BASE}/allowed-callers`);
+                    const data = await res.json();
+                    const list = document.getElementById('allowedCallersList');
+
+                    if (!data.callers || data.callers.length === 0) {
+                        list.innerHTML = '<p style="color: #999; text-align: center; padding: 20px;">No allowed callers configured yet</p>';
+                        return;
+                    }
+
+                    let html = '';
+                    data.callers.forEach((caller, index) => {
+                        const userName = caller.name || data.userMap?.[caller.ha_user_id] || caller.ha_user_id;
+                        const numbers = Array.isArray(caller.phone_numbers) ? caller.phone_numbers : [];
+                        html += `
+                            <div class="pin-item">
+                                <div class="pin-info">
+                                    <strong>${escapeHtml(userName)}</strong>
+                                    <div class="pin-user">${numbers.map(escapeHtml).join('<br>')}</div>
+                                </div>
+                                <button class="delete" onclick="deleteAllowedCaller(${index})">Delete</button>
+                            </div>
+                        `;
+                    });
+                    list.innerHTML = html;
+                } catch (err) {
+                    console.error('Error loading allowed callers:', err);
+                    document.getElementById('allowedCallersList').innerHTML = '<p style="color: #999; text-align: center;">Error loading allowed callers</p>';
+                }
+            }
+
+            async function addAllowedCaller() {
+                const status = document.getElementById('allowedCallerStatus');
+                const name = document.getElementById('callerName').value.trim();
+                const userId = document.getElementById('callerUser').value;
+                const phoneNumbers = document.getElementById('callerPhoneNumbers').value
+                    .split(/[\n,]+/)
+                    .map(item => item.trim())
+                    .filter(Boolean);
+
+                if (!name || !userId || phoneNumbers.length === 0) {
+                    status.className = 'status error';
+                    status.textContent = 'Enter caller name, user, and at least one phone number';
+                    return;
+                }
+
+                try {
+                    const res = await fetch(`${ADMIN_API_BASE}/allowed-callers`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            name,
+                            ha_user_id: userId,
+                            phone_numbers: phoneNumbers
+                        })
+                    });
+
+                    if (res.ok) {
+                        status.className = 'status success';
+                        status.textContent = 'Allowed caller added successfully';
+                        document.getElementById('callerName').value = '';
+                        document.getElementById('callerUser').value = '';
+                        document.getElementById('callerPhoneNumbers').value = '';
+                        setTimeout(() => { status.style.display = 'none'; }, 3000);
+                        loadAllowedCallers();
+                    } else {
+                        const error = await res.text();
+                        status.className = 'status error';
+                        status.textContent = 'Error: ' + error;
+                    }
+                } catch (err) {
+                    status.className = 'status error';
+                    status.textContent = 'Error: ' + err.message;
+                }
+            }
+
+            async function deleteAllowedCaller(index) {
+                if (!confirm('Delete this allowed caller?')) return;
+
+                try {
+                    const res = await fetch(`${ADMIN_API_BASE}/allowed-callers/${index}`, { method: 'DELETE' });
+                    if (res.ok) {
+                        loadAllowedCallers();
+                    }
+                } catch (err) {
+                    alert('Error deleting allowed caller: ' + err.message);
+                }
+            }
+
             document.getElementById('pin').addEventListener('keypress', (e) => {
                 if (e.key === 'Enter') addPin();
             });
@@ -1419,6 +1632,7 @@ async def admin_ui(request: Request):
             loadSettings();
             loadUsers();
             loadPins();
+            loadAllowedCallers();
             setInterval(loadPins, 5000);
         </script>
     </body>
@@ -1559,6 +1773,81 @@ async def delete_pin(pin: str, request: Request):
             return {"success": True}
     
     return JSONResponse({"error": "PIN not found"}, status_code=404)
+
+
+@app.get("/admin/api/allowed-callers")
+async def get_allowed_callers(request: Request):
+    """Get allowed caller records saved from the admin UI."""
+    require_ingress(request)
+
+    saved_callers = []
+    for caller in load_saved_allowed_caller_records():
+        normalized_caller = normalize_allowed_caller_record(caller)
+        if normalized_caller:
+            saved_callers.append(normalized_caller)
+
+    users, error = await fetch_ha_users()
+    user_map = {user["id"]: user["name"] for user in users}
+    if error:
+        print(f"Could not fetch user names for allowed caller list: {error}")
+
+    return {"callers": saved_callers, "userMap": user_map}
+
+
+@app.post("/admin/api/allowed-callers")
+async def add_allowed_caller(caller_request: AllowedCallerRequest, request: Request):
+    """Add an allowed caller record saved from the admin UI."""
+    require_ingress(request)
+
+    caller = normalize_allowed_caller_record({
+        "name": caller_request.name,
+        "ha_user_id": caller_request.ha_user_id,
+        "phone_numbers": caller_request.phone_numbers,
+    })
+    if not caller:
+        return JSONResponse({
+            "error": "Caller name, Home Assistant user, and at least one phone number are required"
+        }, status_code=400)
+
+    callers = [
+        normalized_caller
+        for raw_caller in load_saved_allowed_caller_records()
+        if (normalized_caller := normalize_allowed_caller_record(raw_caller))
+    ]
+    callers.append(caller)
+
+    if save_allowed_caller_records(callers):
+        log_timing(
+            "allowed_caller_added",
+            caller_name=caller["name"],
+            phone_numbers_count=len(caller["phone_numbers"]),
+        )
+        return {"success": True, "caller": caller}
+    return JSONResponse({"error": "Could not save allowed caller"}, status_code=500)
+
+
+@app.delete("/admin/api/allowed-callers/{index}")
+async def delete_allowed_caller(index: int, request: Request):
+    """Delete an allowed caller record saved from the admin UI."""
+    require_ingress(request)
+
+    callers = [
+        normalized_caller
+        for raw_caller in load_saved_allowed_caller_records()
+        if (normalized_caller := normalize_allowed_caller_record(raw_caller))
+    ]
+    if index < 0 or index >= len(callers):
+        return JSONResponse({"error": "Allowed caller not found"}, status_code=404)
+
+    removed = callers.pop(index)
+    if save_allowed_caller_records(callers):
+        log_timing(
+            "allowed_caller_deleted",
+            caller_name=removed["name"],
+            phone_numbers_count=len(removed["phone_numbers"]),
+        )
+        return {"success": True}
+    return JSONResponse({"error": "Could not save allowed callers"}, status_code=500)
 
 
 # Twilio webhook endpoints

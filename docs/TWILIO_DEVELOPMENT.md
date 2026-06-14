@@ -283,7 +283,24 @@ Expected TwiML for PIN fallback with `pin_mode: dtmf`:
 
 ## Conversation Relay Build Path
 
-`conversation_relay` is experimental and depends on the active Twilio account having Conversation Relay enabled.
+`conversation_relay` is the preferred v2 voice bridge mode after the first stable v2 validation. It depends on the active Twilio account having Conversation Relay enabled. `gather` remains the fallback compatibility mode.
+
+Stable v2 baseline:
+
+- Conversation Relay v2 has passed testing from multiple phones.
+- Caller whitelist authentication works from multiple allowed callers.
+- Unknown caller PIN fallback works.
+- Wrong PIN rejection and correct PIN acceptance work.
+- Gather compatibility mode remains functional.
+- Conversation Relay mode works end-to-end.
+- Conversation Relay uses ElevenLabs and the Elspeth voice ID `h8eW5xfRUGVJrZhAFxqK`.
+- Conversation Relay sends caller transcript text to Home Assistant Conversation and receives response text successfully.
+- The assistant can verify house state through Home Assistant.
+- End-call handling works.
+- Conversation Relay is much faster than the previous Gather/TTS/audio-file path.
+- This version should be treated as the known-good baseline before adding new features.
+- Future changes should preserve this path unless explicitly replacing it.
+- Do not reintroduce custom allowed-caller admin UI work yet; allowed caller management remains config-based for now.
 
 Known caller flow:
 

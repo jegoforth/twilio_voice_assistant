@@ -4,10 +4,13 @@ Use this checklist for the next v2.0.0 validation pass. Keep test logs free of f
 
 ## Latest Validated Results
 
+- Stable v2 baseline: this version should be treated as the known-good baseline before adding new features.
 - Repository-installed add-on starts successfully.
 - Admin UI was restored and is functional again.
 - DTMF PIN authentication works.
 - Allowed caller configuration works through the standard add-on config path.
+- Caller whitelist authentication works from multiple allowed callers.
+- Conversation Relay v2 has passed testing from multiple phones.
 - A call from an allowed number skips PIN and goes straight into conversation.
 - A call from an unlisted number with PIN fallback enabled prompts for PIN.
 - One wrong PIN was rejected as expected.
@@ -21,6 +24,11 @@ Use this checklist for the next v2.0.0 validation pass. Keep test logs free of f
 - The assistant verified something in the house correctly.
 - The call ended correctly through the end-call handling.
 - Conversation Relay latency is much faster than the previous Gather/TTS/audio-file path.
+- Future changes should preserve this path unless explicitly replacing it.
+- Do not reintroduce custom allowed-caller admin UI work yet.
+- Allowed caller management remains config-based for now.
+- Gather remains fallback compatibility mode.
+- Conversation Relay is now the preferred voice bridge mode.
 
 ## Startup
 
@@ -82,7 +90,9 @@ allowed_callers:
 ## Bridge Modes
 
 - `voice_bridge_mode: gather` remains the default compatibility path.
+- Gather remains fallback compatibility mode.
 - Gather mode still records caller commands, processes them through Home Assistant Conversation, and plays generated `/audio/*` responses after authentication.
+- Conversation Relay is now the preferred voice bridge mode.
 - `voice_bridge_mode: conversation_relay` returns Conversation Relay TwiML only after caller whitelist match or successful PIN validation.
 - Known failure to avoid: `block_elevenlabs` is a Home Assistant TTS engine ID and must not be used as Conversation Relay `ttsProvider`.
 - Conversation Relay `ttsProvider` defaults to `ElevenLabs` and is limited to `ElevenLabs`, `Google`, or `Amazon`.

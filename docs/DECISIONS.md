@@ -301,6 +301,24 @@ The repository-installed add-on starts successfully. The admin UI was restored a
 
 Conversation Relay mode was validated successfully. Conversation Relay uses ElevenLabs successfully with the confirmed Elspeth ElevenLabs voice ID `h8eW5xfRUGVJrZhAFxqK`. Conversation Relay sends caller transcript text to Home Assistant Conversation, Home Assistant Conversation returns a response, and the assistant verified something in the house correctly. The call ended correctly through the end-call handling. Conversation Relay latency is much faster than the previous Gather/TTS/audio-file path.
 
+Stable v2 baseline:
+
+- Conversation Relay v2 has passed testing from multiple phones.
+- Caller whitelist authentication works from multiple allowed callers.
+- Unknown caller PIN fallback works.
+- Wrong PIN rejection and correct PIN acceptance work.
+- Gather compatibility mode remains functional.
+- Conversation Relay mode works end-to-end.
+- Conversation Relay uses ElevenLabs and the Elspeth voice ID `h8eW5xfRUGVJrZhAFxqK`.
+- Conversation Relay sends caller transcript text to Home Assistant Conversation and receives response text successfully.
+- The assistant can verify house state through Home Assistant.
+- End-call handling works.
+- Conversation Relay is much faster than the previous Gather/TTS/audio-file path.
+- This version should be treated as the known-good baseline before adding new features.
+- Future changes should preserve this path unless explicitly replacing it.
+- Gather remains fallback compatibility mode.
+- Conversation Relay is now the preferred voice bridge mode.
+
 The attempted inline admin UI caller-management work was reverted/stopped. Allowed caller management remains config-based for now. Do not reintroduce the custom allowed-caller admin UI at this stage. Future caller management should be handled by a HACS options flow or separately designed UI.
 
 The next validation focus should be hardening Conversation Relay websocket validation, Twilio webhook signature validation, and interruption/barge-in behavior.

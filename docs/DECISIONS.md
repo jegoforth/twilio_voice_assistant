@@ -295,6 +295,12 @@ Caller whitelist management is config-based for now. The inline admin UI should 
 
 The immediate issue was add-on schema/config visibility, not runtime caller matching. The active add-on manifest is `twilio_voice_assistant/config.json`, and `allowed_callers` is present in that schema. If Home Assistant does not show nested `phone_numbers` cleanly in the visual options editor, use the add-on YAML/options editor with the documented examples instead of adding another inline admin form.
 
+Validation note:
+
+Allowed caller configuration was tested successfully through the standard add-on config path. A known caller matched `allowed_callers`, skipped PIN, and entered the conversation flow. The attempted inline admin UI caller-management work was reverted/stopped; allowed callers remain config-based for now.
+
+Next validation target: Conversation Relay with ElevenLabs TTS.
+
 ## Decision 017: Treat ARCHITECTURE.md as the stable guardrail document
 
 **Status:** Accepted
@@ -335,7 +341,7 @@ Consequences:
 5. Return Home Assistant response text to Conversation Relay. **Done.**
 6. Add caller whitelist authentication mapped to Home Assistant users. **Done.**
 7. Keep PIN authentication as fallback/legacy behavior. **Done.**
-8. Validate ElevenLabs TTS configuration through Twilio. **Next after auth hardening.**
+8. Validate Conversation Relay with ElevenLabs TTS configuration through Twilio. **Next.**
 9. Add latency instrumentation. **Done for logs; diagnostics remain future work.**
 10. Structure the repository as a valid Home Assistant add-on repository. **Done.**
 11. Move configuration and diagnostics into a future HACS integration. **Deferred.**

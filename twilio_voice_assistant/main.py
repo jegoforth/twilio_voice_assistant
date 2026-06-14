@@ -564,7 +564,6 @@ def redirect_to_start_session(user_id: str, user_name: str | None):
 
 def record_command_twiml(encoded_user_id: str, encoded_user_name: str) -> str:
     return f"""
-        <Say>Listening.</Say>
         <Record
             maxLength="10"
             timeout="5"

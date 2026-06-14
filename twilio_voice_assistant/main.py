@@ -1047,8 +1047,6 @@ async def root():
 async def admin_ui(request: Request):
     """Serve the admin UI"""
     require_ingress(request)
-    ingress_path = request.headers.get("x-ingress-path", "").rstrip("/")
-    admin_api_base = f"{ingress_path}/admin/api" if ingress_path else "/admin/api"
     html = """
     <!DOCTYPE html>
     <html>
@@ -1261,9 +1259,23 @@ async def admin_ui(request: Request):
         </div>
 
         <script>
-            const ADMIN_API_BASE = __ADMIN_API_BASE__;
+            function buildAdminApiBase() {
+                const url = new URL(window.location.href);
+                const pagePath = url.pathname.endsWith('/') ? url.pathname : `${url.pathname}/`;
+                return `${pagePath}api`.replace(/[/]$/, '');
+            }
+
+            const ADMIN_API_BASE = buildAdminApiBase();
             let appSettings = {};
             let ttsEngines = [];
+
+            async function fetchJson(path, options = undefined) {
+                const res = await fetch(`${ADMIN_API_BASE}${path}`, options);
+                if (!res.ok) {
+                    throw new Error(`${res.status} ${res.statusText}`);
+                }
+                return res.json();
+            }
 
             function escapeHtml(value) {
                 return String(value ?? '').replace(/[&<>"']/g, (char) => ({
@@ -1277,8 +1289,7 @@ async def admin_ui(request: Request):
 
             async function loadSettings() {
                 try {
-                    const res = await fetch(`${ADMIN_API_BASE}/settings`);
-                    appSettings = await res.json();
+                    appSettings = await fetchJson('/settings');
                     await Promise.all([loadConversationAgents(), loadTtsEngines()]);
                 } catch (err) {
                     console.error('Error loading settings:', err);
@@ -1289,39 +1300,49 @@ async def admin_ui(request: Request):
             }
 
             async function loadConversationAgents() {
-                const res = await fetch(`${ADMIN_API_BASE}/conversation-agents`);
-                const data = await res.json();
                 const select = document.getElementById('conversationAgent');
-                select.innerHTML = '<option value="">Home Assistant default</option>';
+                try {
+                    const data = await fetchJson('/conversation-agents');
+                    select.innerHTML = '<option value="">Home Assistant default</option>';
 
-                if (data.agents && data.agents.length > 0) {
-                    data.agents.forEach(agent => {
-                        const opt = document.createElement('option');
-                        opt.value = agent.id;
-                        opt.textContent = agent.name;
-                        select.appendChild(opt);
-                    });
+                    if (data.agents && data.agents.length > 0) {
+                        data.agents.forEach(agent => {
+                            const opt = document.createElement('option');
+                            opt.value = agent.id;
+                            opt.textContent = agent.name;
+                            select.appendChild(opt);
+                        });
+                    }
+
+                    select.value = appSettings.conversation_agent_id || '';
+                } catch (err) {
+                    console.error('Error loading conversation agents:', err);
+                    select.innerHTML = '<option value="">Error loading agents</option>';
                 }
-
-                select.value = appSettings.conversation_agent_id || '';
             }
 
             async function loadTtsEngines() {
-                const res = await fetch(`${ADMIN_API_BASE}/tts-engines`);
-                const data = await res.json();
-                ttsEngines = data.engines || [];
                 const select = document.getElementById('ttsEngine');
-                select.innerHTML = '<option value="">-- Select TTS engine --</option>';
+                try {
+                    const data = await fetchJson('/tts-engines');
+                    ttsEngines = data.engines || [];
+                    select.innerHTML = '<option value="">-- Select TTS engine --</option>';
 
-                ttsEngines.forEach(engine => {
-                    const opt = document.createElement('option');
-                    opt.value = engine.id;
-                    opt.textContent = engine.name;
-                    select.appendChild(opt);
-                });
+                    ttsEngines.forEach(engine => {
+                        const opt = document.createElement('option');
+                        opt.value = engine.id;
+                        opt.textContent = engine.name;
+                        select.appendChild(opt);
+                    });
 
-                select.value = appSettings.tts_engine_id || '';
-                onTtsEngineChanged();
+                    select.value = appSettings.tts_engine_id || '';
+                    onTtsEngineChanged();
+                } catch (err) {
+                    console.error('Error loading TTS engines:', err);
+                    ttsEngines = [];
+                    select.innerHTML = '<option value="">Error loading TTS engines</option>';
+                    document.getElementById('ttsLanguage').innerHTML = '<option value="">Error loading TTS engines</option>';
+                }
             }
 
             function onTtsEngineChanged() {
@@ -1364,8 +1385,7 @@ async def admin_ui(request: Request):
                 if (!engineId || !language) return;
 
                 try {
-                    const res = await fetch(`${ADMIN_API_BASE}/tts-voices?engine_id=${encodeURIComponent(engineId)}&language=${encodeURIComponent(language)}`);
-                    const data = await res.json();
+                    const data = await fetchJson(`/tts-voices?engine_id=${encodeURIComponent(engineId)}&language=${encodeURIComponent(language)}`);
                     if (data.voices && data.voices.length > 0) {
                         data.voices.forEach(voice => {
                             const opt = document.createElement('option');
@@ -1420,8 +1440,7 @@ async def admin_ui(request: Request):
 
             async function loadUsers() {
                 try {
-                    const res = await fetch(`${ADMIN_API_BASE}/users`);
-                    const data = await res.json();
+                    const data = await fetchJson('/users');
                     const select = document.getElementById('user');
                     const callerSelect = document.getElementById('callerUser');
                     select.innerHTML = '<option value="">-- Select user --</option>';
@@ -1447,8 +1466,7 @@ async def admin_ui(request: Request):
 
             async function loadPins() {
                 try {
-                    const res = await fetch(`${ADMIN_API_BASE}/pins`);
-                    const data = await res.json();
+                    const data = await fetchJson('/pins');
                     const list = document.getElementById('pinsList');
                     
                     if (!data.pins || Object.keys(data.pins).length === 0) {
@@ -1537,8 +1555,7 @@ async def admin_ui(request: Request):
 
             async function loadAllowedCallers() {
                 try {
-                    const res = await fetch(`${ADMIN_API_BASE}/allowed-callers`);
-                    const data = await res.json();
+                    const data = await fetchJson('/allowed-callers');
                     const list = document.getElementById('allowedCallersList');
 
                     if (!data.callers || data.callers.length === 0) {
@@ -1638,7 +1655,7 @@ async def admin_ui(request: Request):
     </body>
     </html>
     """
-    return html.replace("__ADMIN_API_BASE__", json.dumps(admin_api_base))
+    return html
 
 
 @app.get("//admin", response_class=HTMLResponse)

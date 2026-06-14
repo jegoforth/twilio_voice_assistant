@@ -2,6 +2,18 @@
 
 Use this checklist for the next v2.0.0 validation pass. Keep test logs free of full caller phone numbers, PIN values, full transcripts, and full Home Assistant responses.
 
+## Latest Validated Results
+
+- Repository-installed add-on starts successfully.
+- Admin UI was restored and is functional again.
+- DTMF PIN authentication works.
+- Allowed caller configuration works through the standard add-on config path.
+- A call from an allowed number skips PIN and goes straight into conversation.
+- A call from an unlisted number with PIN fallback enabled prompts for PIN.
+- One wrong PIN was rejected as expected.
+- One correct PIN was accepted and entered conversation as expected.
+- Gather compatibility mode remains functional.
+
 ## Startup
 
 - Add-on starts without configuration parsing errors.
@@ -65,7 +77,7 @@ allowed_callers:
 - `voice_bridge_mode: conversation_relay` returns Conversation Relay TwiML only after caller whitelist match or successful PIN validation.
 - Conversation Relay websocket sends final transcript text to Home Assistant Conversation without local TTS generation.
 - Conversation Relay mode does not write caller audio, generated TTS audio, transient transcripts, or transient response text to disk.
-- Next validation target: Conversation Relay with ElevenLabs TTS.
+- Next validation target: Conversation Relay mode with caller whitelist authentication and ElevenLabs TTS through Twilio Conversation Relay if supported by the active Twilio account.
 
 ## Security TODOs Before Production
 

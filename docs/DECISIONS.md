@@ -297,9 +297,11 @@ The immediate issue was add-on schema/config visibility, not runtime caller matc
 
 Validation note:
 
-Allowed caller configuration was tested successfully through the standard add-on config path. A known caller matched `allowed_callers`, skipped PIN, and entered the conversation flow. The attempted inline admin UI caller-management work was reverted/stopped; allowed callers remain config-based for now.
+The repository-installed add-on starts successfully. The admin UI was restored and is functional again. DTMF PIN authentication works. Allowed caller configuration was tested successfully through the standard add-on config path. A known caller matched `allowed_callers`, skipped PIN, and entered the conversation flow. An unlisted caller with PIN fallback enabled was prompted for PIN; one wrong PIN was rejected as expected, and one correct PIN was accepted and entered conversation as expected. Gather compatibility mode remains functional.
 
-Next validation target: Conversation Relay with ElevenLabs TTS.
+The attempted inline admin UI caller-management work was reverted/stopped. Allowed caller management remains config-based for now. Do not reintroduce the custom allowed-caller admin UI at this stage. Future caller management should be handled by a HACS options flow or separately designed UI.
+
+Next validation target: Conversation Relay mode with caller whitelist authentication, and ElevenLabs TTS through Twilio Conversation Relay if supported by the active Twilio account.
 
 ## Decision 017: Treat ARCHITECTURE.md as the stable guardrail document
 

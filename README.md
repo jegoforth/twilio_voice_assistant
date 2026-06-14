@@ -152,9 +152,10 @@ PINs and assistant settings are stored in `/share/twilio_voice_assistant` so the
 ## Notes
 
 - Rotate your Twilio auth token if it is ever pasted into logs, screenshots, chat, or documentation.
-- The add-on currently uses local Whisper transcription for call audio before sending text to Home Assistant Conversation.
+- Version `1.3.8` is the stable unified-auth Conversation Relay baseline: unified `callers` config works, known caller phone numbers skip PIN into Conversation Relay, unlisted callers can fall back to PIN, wrong PINs are rejected, correct PINs are accepted, and ElevenLabs Elspeth voice works through Conversation Relay.
+- Gather remains deprecated fallback only. In Gather mode, the add-on uses local Whisper transcription for call audio before sending text to Home Assistant Conversation.
 - Caller whitelist authentication is the preferred v2 path. PIN authentication remains a fallback/legacy path for compatibility.
-- Conversation Relay mode is the preferred v2 bridge. After caller whitelist or PIN authentication, it returns `<Connect><ConversationRelay>` TwiML and expects Twilio to connect to the add-on websocket at `/conversation_relay`.
+- Conversation Relay mode is the preferred/default v2 bridge. After caller whitelist or PIN authentication, it returns `<Connect><ConversationRelay>` TwiML and expects Twilio to connect to the add-on websocket at `/conversation_relay`.
 - ElevenLabs TTS is the target voice provider for the v2.0.0 path.
 - The primary v2 path avoids local caller-audio and generated-TTS audio file handling; local audio files remain part of the `gather` fallback mode.
 - The selected Home Assistant TTS engine must be able to generate audio that Twilio can play through the public URL configured in `public_base_url`.

@@ -303,6 +303,8 @@ The repository-installed add-on starts successfully. The admin UI was restored a
 
 Conversation Relay mode was validated successfully. Conversation Relay uses ElevenLabs successfully with the confirmed Elspeth ElevenLabs voice ID `h8eW5xfRUGVJrZhAFxqK`. Conversation Relay sends caller transcript text to Home Assistant Conversation, Home Assistant Conversation returns a response, and the assistant verified something in the house correctly. The call ended correctly through the end-call handling. Conversation Relay latency is much faster than the previous Gather/TTS/audio-file path.
 
+Version `1.3.8` was validated as the stable unified-auth Conversation Relay baseline. Unified `callers` config works. Known caller phone numbers skip PIN and enter Conversation Relay. Unlisted callers fall back to PIN when configured. Wrong PIN is rejected, correct PIN is accepted, Conversation Relay remains the preferred/default voice bridge, and ElevenLabs Elspeth voice is working through Conversation Relay. Gather remains deprecated fallback only.
+
 Stable v2 baseline:
 
 - Conversation Relay v2 has passed testing from multiple phones.

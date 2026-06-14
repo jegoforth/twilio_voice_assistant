@@ -292,6 +292,15 @@ Expected TwiML for PIN fallback with `pin_mode: dtmf`:
 
 Stable v2 baseline:
 
+- Version `1.3.8` is the stable unified-auth Conversation Relay baseline.
+- Unified `callers` config works.
+- Known caller phone numbers skip PIN and enter Conversation Relay.
+- Unlisted callers fall back to PIN when configured.
+- Wrong PIN is rejected.
+- Correct PIN is accepted.
+- Conversation Relay remains the preferred/default voice bridge.
+- ElevenLabs Elspeth voice is working through Conversation Relay.
+- Gather remains deprecated fallback only.
 - Conversation Relay v2 has passed testing from multiple phones.
 - Caller whitelist authentication works from multiple allowed callers.
 - Unknown caller PIN fallback works.

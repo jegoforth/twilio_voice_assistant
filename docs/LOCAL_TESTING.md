@@ -4,6 +4,15 @@ Use this checklist for the next v2.0.0 validation pass. Keep test logs free of f
 
 ## Latest Validated Results
 
+- Version `1.3.8` is the stable unified-auth Conversation Relay baseline.
+- Unified `callers` config works through the standard add-on config path.
+- Known caller phone numbers in `callers` skip PIN and enter Conversation Relay.
+- Unlisted callers fall back to PIN when configured.
+- Wrong PIN is rejected.
+- Correct PIN is accepted.
+- Conversation Relay remains the preferred/default voice bridge.
+- ElevenLabs Elspeth voice is working through Conversation Relay.
+- Gather remains deprecated fallback only.
 - Stable v2 baseline: this version should be treated as the known-good baseline before adding new features.
 - Repository-installed add-on starts successfully.
 - Admin UI was restored and is functional again.

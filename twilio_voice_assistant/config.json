@@ -1,6 +1,6 @@
 {
   "name": "Twilio Voice Assistant",
-  "version": "1.3.3",
+  "version": "1.3.4",
   "slug": "twilio_voice_assistant",
   "description": "Twilio webhook service with caller whitelist/PIN fallback authentication, Gather compatibility mode, experimental Conversation Relay text-only bridge, and Home Assistant Conversation integration.",
   "arch": ["amd64", "aarch64"],

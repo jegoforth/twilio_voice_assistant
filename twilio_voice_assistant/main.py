@@ -1168,6 +1168,11 @@ async def admin_ui(request: Request):
                 color: #721c24;
                 display: block;
             }
+            .hint {
+                color: #777;
+                font-size: 12px;
+                margin-top: 4px;
+            }
             .loading {
                 opacity: 0.6;
                 cursor: wait;
@@ -1185,24 +1190,29 @@ async def admin_ui(request: Request):
                     <select id="conversationAgent">
                         <option value="">-- Loading agents --</option>
                     </select>
+                    <input type="text" id="conversationAgentManual" placeholder="Optional manual conversation agent ID">
+                    <div class="hint">Use the manual field if Home Assistant agent discovery is unavailable.</div>
                 </div>
                 <div class="form-group">
                     <label for="ttsEngine">TTS Engine:</label>
                     <select id="ttsEngine" onchange="onTtsEngineChanged()">
                         <option value="">-- Loading TTS engines --</option>
                     </select>
+                    <input type="text" id="ttsEngineManual" placeholder="Optional manual TTS engine ID">
                 </div>
                 <div class="form-group">
                     <label for="ttsLanguage">TTS Language:</label>
                     <select id="ttsLanguage" onchange="loadVoices()">
                         <option value="">-- Select TTS engine first --</option>
                     </select>
+                    <input type="text" id="ttsLanguageManual" placeholder="Optional manual TTS language, for example en-US">
                 </div>
                 <div class="form-group">
                     <label for="ttsVoice">TTS Voice:</label>
                     <select id="ttsVoice">
                         <option value="">Default voice</option>
                     </select>
+                    <input type="text" id="ttsVoiceManual" placeholder="Optional manual TTS voice ID">
                 </div>
                 <button onclick="saveSettings()">Save Settings</button>
                 <div class="status" id="settingsStatus"></div>
@@ -1218,6 +1228,7 @@ async def admin_ui(request: Request):
                     <select id="user">
                         <option value="">-- Loading users --</option>
                     </select>
+                    <input type="text" id="userManual" placeholder="Or paste Home Assistant user ID">
                 </div>
                 <button onclick="addPin()">Add PIN</button>
                 <div class="status" id="status"></div>
@@ -1241,6 +1252,7 @@ async def admin_ui(request: Request):
                     <select id="callerUser">
                         <option value="">-- Loading users --</option>
                     </select>
+                    <input type="text" id="callerUserManual" placeholder="Or paste Home Assistant user ID">
                 </div>
                 <div class="form-group">
                     <label for="callerPhoneNumbers">Phone Numbers (one per line, E.164 preferred):</label>
@@ -1277,6 +1289,11 @@ async def admin_ui(request: Request):
                 return res.json();
             }
 
+            function selectedOrManual(selectId, inputId) {
+                return document.getElementById(inputId).value.trim()
+                    || document.getElementById(selectId).value;
+            }
+
             function escapeHtml(value) {
                 return String(value ?? '').replace(/[&<>"']/g, (char) => ({
                     '&': '&amp;',
@@ -1303,6 +1320,7 @@ async def admin_ui(request: Request):
                 const select = document.getElementById('conversationAgent');
                 try {
                     const data = await fetchJson('/conversation-agents');
+                    if (data.error) throw new Error(data.error);
                     select.innerHTML = '<option value="">Home Assistant default</option>';
 
                     if (data.agents && data.agents.length > 0) {
@@ -1315,9 +1333,14 @@ async def admin_ui(request: Request):
                     }
 
                     select.value = appSettings.conversation_agent_id || '';
+                    document.getElementById('conversationAgentManual').value = appSettings.conversation_agent_id || '';
                 } catch (err) {
                     console.error('Error loading conversation agents:', err);
                     select.innerHTML = '<option value="">Error loading agents</option>';
+                    document.getElementById('conversationAgentManual').value = appSettings.conversation_agent_id || '';
+                    const status = document.getElementById('settingsStatus');
+                    status.className = 'status error';
+                    status.textContent = 'Could not load Home Assistant agents. Manual agent ID can still be used.';
                 }
             }
 
@@ -1325,6 +1348,7 @@ async def admin_ui(request: Request):
                 const select = document.getElementById('ttsEngine');
                 try {
                     const data = await fetchJson('/tts-engines');
+                    if (data.error) throw new Error(data.error);
                     ttsEngines = data.engines || [];
                     select.innerHTML = '<option value="">-- Select TTS engine --</option>';
 
@@ -1336,12 +1360,21 @@ async def admin_ui(request: Request):
                     });
 
                     select.value = appSettings.tts_engine_id || '';
+                    document.getElementById('ttsEngineManual').value = appSettings.tts_engine_id || '';
+                    document.getElementById('ttsLanguageManual').value = appSettings.tts_language || '';
+                    document.getElementById('ttsVoiceManual').value = appSettings.tts_voice || '';
                     onTtsEngineChanged();
                 } catch (err) {
                     console.error('Error loading TTS engines:', err);
                     ttsEngines = [];
                     select.innerHTML = '<option value="">Error loading TTS engines</option>';
                     document.getElementById('ttsLanguage').innerHTML = '<option value="">Error loading TTS engines</option>';
+                    document.getElementById('ttsEngineManual').value = appSettings.tts_engine_id || '';
+                    document.getElementById('ttsLanguageManual').value = appSettings.tts_language || '';
+                    document.getElementById('ttsVoiceManual').value = appSettings.tts_voice || '';
+                    const status = document.getElementById('settingsStatus');
+                    status.className = 'status error';
+                    status.textContent = 'Could not load Home Assistant TTS engines. Manual TTS fields can still be used.';
                 }
             }
 
@@ -1403,10 +1436,10 @@ async def admin_ui(request: Request):
             async function saveSettings() {
                 const status = document.getElementById('settingsStatus');
                 const settings = {
-                    conversation_agent_id: document.getElementById('conversationAgent').value,
-                    tts_engine_id: document.getElementById('ttsEngine').value,
-                    tts_language: document.getElementById('ttsLanguage').value,
-                    tts_voice: document.getElementById('ttsVoice').value
+                    conversation_agent_id: selectedOrManual('conversationAgent', 'conversationAgentManual'),
+                    tts_engine_id: selectedOrManual('ttsEngine', 'ttsEngineManual'),
+                    tts_language: selectedOrManual('ttsLanguage', 'ttsLanguageManual'),
+                    tts_voice: selectedOrManual('ttsVoice', 'ttsVoiceManual')
                 };
 
                 if (!settings.tts_engine_id) {
@@ -1441,6 +1474,7 @@ async def admin_ui(request: Request):
             async function loadUsers() {
                 try {
                     const data = await fetchJson('/users');
+                    if (data.error) throw new Error(data.error);
                     const select = document.getElementById('user');
                     const callerSelect = document.getElementById('callerUser');
                     select.innerHTML = '<option value="">-- Select user --</option>';
@@ -1461,6 +1495,12 @@ async def admin_ui(request: Request):
                     console.error('Error loading users:', err);
                     document.getElementById('user').innerHTML = '<option value="">Error loading users</option>';
                     document.getElementById('callerUser').innerHTML = '<option value="">Error loading users</option>';
+                    const status = document.getElementById('status');
+                    status.className = 'status error';
+                    status.textContent = 'Could not load Home Assistant users. Paste the Home Assistant user ID manually.';
+                    const callerStatus = document.getElementById('allowedCallerStatus');
+                    callerStatus.className = 'status error';
+                    callerStatus.textContent = 'Could not load Home Assistant users. Paste the Home Assistant user ID manually.';
                 }
             }
 
@@ -1498,7 +1538,7 @@ async def admin_ui(request: Request):
 
             async function addPin() {
                 const pin = document.getElementById('pin').value.trim();
-                const userId = document.getElementById('user').value;
+                const userId = selectedOrManual('user', 'userManual');
                 const status = document.getElementById('status');
 
                 if (!pin || !userId) {
@@ -1515,7 +1555,9 @@ async def admin_ui(request: Request):
 
                 try {
                     const select = document.getElementById('user');
-                    const userName = select.options[select.selectedIndex]?.textContent || userId;
+                    const userName = document.getElementById('userManual').value.trim()
+                        ? userId
+                        : select.options[select.selectedIndex]?.textContent || userId;
                     const res = await fetch(`${ADMIN_API_BASE}/pins`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
@@ -1527,6 +1569,7 @@ async def admin_ui(request: Request):
                         status.textContent = '✓ PIN added successfully';
                         document.getElementById('pin').value = '';
                         document.getElementById('user').value = '';
+                        document.getElementById('userManual').value = '';
                         setTimeout(() => { status.style.display = 'none'; }, 3000);
                         loadPins();
                     } else {
@@ -1587,7 +1630,7 @@ async def admin_ui(request: Request):
             async function addAllowedCaller() {
                 const status = document.getElementById('allowedCallerStatus');
                 const name = document.getElementById('callerName').value.trim();
-                const userId = document.getElementById('callerUser').value;
+                const userId = selectedOrManual('callerUser', 'callerUserManual');
                 const phoneNumbers = document.getElementById('callerPhoneNumbers').value
                     .split(/[\n,]+/)
                     .map(item => item.trim())
@@ -1615,6 +1658,7 @@ async def admin_ui(request: Request):
                         status.textContent = 'Allowed caller added successfully';
                         document.getElementById('callerName').value = '';
                         document.getElementById('callerUser').value = '';
+                        document.getElementById('callerUserManual').value = '';
                         document.getElementById('callerPhoneNumbers').value = '';
                         setTimeout(() => { status.style.display = 'none'; }, 3000);
                         loadAllowedCallers();

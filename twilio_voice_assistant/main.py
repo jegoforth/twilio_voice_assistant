@@ -84,6 +84,21 @@ if VOICE_BRIDGE_MODE not in SUPPORTED_VOICE_BRIDGE_MODES:
     )
     VOICE_BRIDGE_MODE = "gather"
 
+SUPPORTED_CONVERSATION_RELAY_TTS_PROVIDERS = {
+    "ElevenLabs",
+    "Google",
+    "Amazon",
+}
+if CONVERSATION_RELAY_TTS_PROVIDER not in SUPPORTED_CONVERSATION_RELAY_TTS_PROVIDERS:
+    print(
+        "WARNING: Unsupported conversation_relay_tts_provider "
+        f"{CONVERSATION_RELAY_TTS_PROVIDER!r}; falling back to 'ElevenLabs'"
+    )
+    CONVERSATION_RELAY_TTS_PROVIDER = "ElevenLabs"
+
+if CONVERSATION_RELAY_VOICE.lower() == "default":
+    CONVERSATION_RELAY_VOICE = ""
+
 # Validate required credentials
 required_vars = {
     "TWILIO_ACCOUNT_SID": TWILIO_ACCOUNT_SID,
@@ -1693,7 +1708,7 @@ async def start_session(
                 tts_provider=CONVERSATION_RELAY_TTS_PROVIDER,
                 transcription_provider=CONVERSATION_RELAY_TRANSCRIPTION_PROVIDER,
                 language=CONVERSATION_RELAY_LANGUAGE,
-                has_voice=bool(CONVERSATION_RELAY_VOICE),
+                conversation_relay_voice_configured=bool(CONVERSATION_RELAY_VOICE),
             )
             return twiml_response(conversation_relay_twiml(user_id, user_name))
 

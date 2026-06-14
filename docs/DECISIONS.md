@@ -273,7 +273,7 @@ allowed_callers:
     phone_numbers:
       - "+19013027364"
       - "+1XXXXXXXXXX"
-    ha_user_id: "<home_assistant_user_id>"
+    ha_user_id: 5e738examplehomeassistantuserid
 ```
 
 - Known callers should continue directly to the selected bridge mode.
@@ -302,6 +302,10 @@ The repository-installed add-on starts successfully. The admin UI was restored a
 The attempted inline admin UI caller-management work was reverted/stopped. Allowed caller management remains config-based for now. Do not reintroduce the custom allowed-caller admin UI at this stage. Future caller management should be handled by a HACS options flow or separately designed UI.
 
 Next validation target: Conversation Relay mode with caller whitelist authentication, and ElevenLabs TTS through Twilio Conversation Relay if supported by the active Twilio account.
+
+HA user IDs in `allowed_callers` should not include angle brackets. Use `5e738...`, not `<5e738...>`.
+
+Conversation Relay TTS settings are separate from Gather/Home Assistant TTS settings. Home Assistant TTS engine IDs such as `block_elevenlabs` must not be used as Conversation Relay `ttsProvider` values. The runtime now limits Conversation Relay providers to `ElevenLabs`, `Google`, or `Amazon`, falls back to `ElevenLabs` for invalid values, and omits `voice` when `conversation_relay_voice` is blank or `default`.
 
 ## Decision 017: Treat ARCHITECTURE.md as the stable guardrail document
 

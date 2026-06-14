@@ -42,7 +42,7 @@ auth_mode: caller_whitelist
 unknown_caller_policy: reject
 allowed_callers:
   - name: Eric Goforth
-    ha_user_id: "<home_assistant_user_id>"
+    ha_user_id: 5e738examplehomeassistantuserid
     phone_numbers:
       - "+19013027364"
       - "+1XXXXXXXXXX"
@@ -55,10 +55,11 @@ auth_mode: caller_whitelist
 unknown_caller_policy: reject
 allowed_callers:
   - name: Eric Goforth
-    ha_user_id: "<home_assistant_user_id>"
+    ha_user_id: 5e738examplehomeassistantuserid
     phone_number: "+19013027364"
 ```
 
+- HA user IDs in `allowed_callers` should not include angle brackets. Use `5e738...`, not `<5e738...>`.
 - `auth_mode: pin` still prompts for PIN on `/incoming_call`.
 - `auth_mode: pin` still reaches `/start_session` after a valid PIN.
 - `auth_mode: caller_whitelist` rejects an unknown caller when `unknown_caller_policy: reject`.
@@ -75,6 +76,9 @@ allowed_callers:
 - `voice_bridge_mode: gather` remains the default compatibility path.
 - Gather mode still records caller commands, processes them through Home Assistant Conversation, and plays generated `/audio/*` responses after authentication.
 - `voice_bridge_mode: conversation_relay` returns Conversation Relay TwiML only after caller whitelist match or successful PIN validation.
+- Known failure to avoid: `block_elevenlabs` is a Home Assistant TTS engine ID and must not be used as Conversation Relay `ttsProvider`.
+- Conversation Relay `ttsProvider` defaults to `ElevenLabs` and is limited to `ElevenLabs`, `Google`, or `Amazon`.
+- Conversation Relay TwiML omits `voice` when `conversation_relay_voice` is blank or `default`.
 - Conversation Relay websocket sends final transcript text to Home Assistant Conversation without local TTS generation.
 - Conversation Relay mode does not write caller audio, generated TTS audio, transient transcripts, or transient response text to disk.
 - Next validation target: Conversation Relay mode with caller whitelist authentication and ElevenLabs TTS through Twilio Conversation Relay if supported by the active Twilio account.

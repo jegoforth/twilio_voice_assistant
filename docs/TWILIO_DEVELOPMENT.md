@@ -177,9 +177,17 @@ conversation_relay_transcription_provider: Deepgram
 conversation_relay_language: en-US
 ```
 
-Leave `conversation_relay_voice` empty until the Twilio account has a confirmed Conversation Relay voice ID.
+Leave `conversation_relay_voice` empty until the Twilio account has a confirmed Conversation Relay voice ID. The value `default` is treated as blank and the app omits the `voice` attribute from Conversation Relay TwiML.
+
+Gather mode and Conversation Relay mode use separate TTS configuration:
+
+- Gather mode uses Home Assistant TTS settings from the admin UI, such as a Home Assistant TTS engine ID like `block_elevenlabs`.
+- Conversation Relay mode uses Twilio Conversation Relay TTS settings from add-on config. `conversation_relay_tts_provider` must be a Twilio-supported provider: `ElevenLabs`, `Google`, or `Amazon`.
+- Do not use Home Assistant TTS engine IDs as Conversation Relay `ttsProvider` values. `block_elevenlabs` is valid only as a Home Assistant TTS engine ID, not as a Twilio Conversation Relay provider.
 
 The add-on schema accepts `auth_mode`, `unknown_caller_policy`, and `allowed_callers` from `twilio_voice_assistant/config.json`. The preferred caller shape is one Home Assistant user with a `phone_numbers` list. The legacy `phone_number` single-value shape remains supported for backward compatibility. Caller whitelist management is config-based for now; use the standard Home Assistant add-on options/YAML editor.
+
+HA user IDs in `allowed_callers` should not include angle brackets. Use `5e738...`, not `<5e738...>`.
 
 ## Authentication Call Flows
 
@@ -325,7 +333,7 @@ Current generated TwiML shape:
 </Response>
 ```
 
-The app includes `voice="..."` only when `conversation_relay_voice` is configured.
+The app includes `voice="..."` only when `conversation_relay_voice` is configured and is not `default`.
 
 TODO: Confirm the final supported Conversation Relay provider, language, voice, interruption, and websocket validation details against the active Twilio account before treating this as production behavior.
 
@@ -492,6 +500,8 @@ If Conversation Relay fails immediately:
 - Confirm the Twilio account is enabled for Conversation Relay.
 - Confirm the generated websocket URL begins with `wss://`.
 - Confirm the tunnel or reverse proxy supports websocket upgrades.
+- Confirm `conversation_relay_tts_provider` is a Twilio provider: `ElevenLabs`, `Google`, or `Amazon`.
+- Do not set `conversation_relay_tts_provider` to a Home Assistant TTS engine ID such as `block_elevenlabs`; Twilio reports this as invalid TTS settings.
 - Temporarily remove `conversation_relay_voice` to let Twilio use the provider default.
 - Check Twilio call logs for Conversation Relay error codes.
 - Treat provider, language, and voice failures as TODO validation items until verified against the active account.

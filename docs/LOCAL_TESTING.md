@@ -68,12 +68,21 @@ Use this checklist for the next v2.0.0 validation pass. Keep test logs free of f
 auth_mode: caller_whitelist
 unknown_caller_policy: reject
 callers:
-  - name: Eric Goforth
-    ha_user_id: 5e738examplehomeassistantuserid
+  - ha_user_id: 5e738examplehomeassistantuserid
     phone_numbers:
       - "+19013027364"
       - "+1XXXXXXXXXX"
     pin: "1234"
+```
+
+- Optional `name` remains accepted as a fallback if Home Assistant user display-name lookup fails:
+
+```yaml
+callers:
+  - name: Eric Goforth
+    ha_user_id: 5e738examplehomeassistantuserid
+    phone_numbers:
+      - "+19013027364"
 ```
 
 - Legacy `allowed_callers` single-number caller whitelist configuration still works:
@@ -93,6 +102,7 @@ allowed_callers:
 - `auth_mode: caller_whitelist` rejects an unknown caller when `unknown_caller_policy: reject`.
 - `auth_mode: caller_whitelist_or_pin` sends an unknown caller to PIN fallback when `unknown_caller_policy: pin_fallback`.
 - A known caller in `callers` reaches `/start_session` without PIN.
+- A known caller in `callers` can omit `name`; the greeting uses the Home Assistant user display name when available.
 - A known caller configured with preferred `phone_numbers` reaches `/start_session` from each listed number.
 - A known caller configured with legacy `phone_number` still reaches `/start_session`.
 - Tested successfully: an allowed caller matched the config, skipped PIN, and entered the conversation flow.

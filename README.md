@@ -107,7 +107,7 @@ Open the add-on configuration page in Home Assistant and set:
   - `pin`: Legacy PIN-first behavior.
   - `caller_whitelist_or_pin`: Known callers skip PIN; unknown callers can use PIN fallback.
 - `unknown_caller_policy`: Defaults to `reject`. Use `pin_fallback` to allow unknown callers to try PIN auth.
-- `callers`: Preferred v2 caller identity list with `name`, E.164 `phone_numbers`, Home Assistant `ha_user_id`, and optional fallback `pin`.
+- `callers`: Preferred v2 caller identity list with required Home Assistant `ha_user_id`, E.164 `phone_numbers`, optional fallback `pin`, and optional `name`. Runtime greetings use the Home Assistant user display name when available.
 - `allowed_callers`: Legacy known-caller list. Prefer `callers` for new configuration.
 - `voice_bridge_mode`: Optional bridge mode. Defaults to `conversation_relay`.
   - `conversation_relay`: Preferred v2 text bridge using Twilio Conversation Relay.

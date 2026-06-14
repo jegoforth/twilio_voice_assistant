@@ -214,7 +214,7 @@ def normalize_callers_for_lookup(callers, config_name: str):
         ha_user_id = normalize_ha_user_id(caller.get("ha_user_id"), config_name)
         if not ha_user_id:
             continue
-        caller_name = (caller.get("name") or ha_user_id).strip() or ha_user_id
+        caller_name = (caller.get("name") or "").strip()
         normalized_numbers = {
             normalized_number
             for raw_number in caller_phone_numbers(caller)
@@ -267,7 +267,7 @@ def load_caller_identity_pin_map():
         ha_user_id = normalize_ha_user_id(caller.get("ha_user_id"), "callers")
         if not ha_user_id:
             continue
-        caller_name = (caller.get("name") or ha_user_id).strip() or ha_user_id
+        caller_name = (caller.get("name") or "").strip()
         pin_map[pin] = {
             "user_id": ha_user_id,
             "user_name": caller_name,
@@ -587,13 +587,30 @@ def pin_entry_user_id(pin_entry):
 
 
 def pin_entry_user_name(pin_entry, user_map):
+    user_id = pin_entry_user_id(pin_entry)
+    resolved_user_name = user_map.get(user_id)
+    if resolved_user_name:
+        return resolved_user_name
+
     if isinstance(pin_entry, dict):
         user_name = pin_entry.get("user_name") or pin_entry.get("name")
         if user_name:
             return user_name
 
-    user_id = pin_entry_user_id(pin_entry)
-    return user_map.get(user_id) or user_id
+    return user_id
+
+
+async def resolve_ha_user_display_name(
+    user_id: str,
+    configured_name: str | None = None,
+) -> str:
+    users, error = await fetch_ha_users()
+    if error:
+        print(f"Could not resolve Home Assistant user display name: {error}")
+        return configured_name or user_id
+
+    user_map = {user["id"]: user["name"] for user in users}
+    return user_map.get(user_id) or configured_name or user_id
 
 
 PIN_MAP = load_pin_map()
@@ -1672,13 +1689,17 @@ async def incoming_call(
         return prompt_for_pin(call_sid=CallSid)
 
     if caller:
+        user_name = await resolve_ha_user_display_name(
+            caller["ha_user_id"],
+            caller.get("name"),
+        )
         log_timing(
             "caller_whitelist_matched",
             call_sid=CallSid,
             caller=masked_from,
             user_id=caller["ha_user_id"],
         )
-        return redirect_to_start_session(caller["ha_user_id"], caller["name"])
+        return redirect_to_start_session(caller["ha_user_id"], user_name)
 
     if (
         AUTH_MODE == "caller_whitelist_or_pin"

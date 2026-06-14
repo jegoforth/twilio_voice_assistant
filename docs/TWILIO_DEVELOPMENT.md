@@ -120,20 +120,18 @@ Preferred v2 unified caller identity config:
 auth_mode: caller_whitelist
 unknown_caller_policy: reject
 callers:
-  - name: Eric
+  - ha_user_id: 0123456789abcdef0123456789abcdef
     phone_numbers:
       - "+15551234567"
       - "+15559876543"
-    ha_user_id: 0123456789abcdef0123456789abcdef
     pin: "1234"
-  - name: Backup Admin
+  - ha_user_id: fedcba9876543210fedcba9876543210
     phone_numbers:
       - "+15557654321"
-    ha_user_id: fedcba9876543210fedcba9876543210
     pin: "5678"
 ```
 
-The canonical `callers` list is the migration target for caller identity. Each record can hold `name`, `ha_user_id`, one or more `phone_numbers`, and an optional fallback `pin`. The legacy `allowed_callers` list and admin PIN UI still work during migration.
+The canonical `callers` list is the migration target for caller identity. Each record requires `ha_user_id` and one or more `phone_numbers`; it can also include an optional fallback `pin` and optional `name`. Runtime greetings resolve the Home Assistant user display name from `ha_user_id` when available. The optional configured `name` is only a fallback when Home Assistant user lookup fails. The legacy `allowed_callers` list and admin PIN UI still work during migration.
 
 Legacy `allowed_callers` single-number entries using `phone_number` still work:
 
@@ -158,11 +156,10 @@ auth_mode: caller_whitelist_or_pin
 unknown_caller_policy: pin_fallback
 pin_mode: dtmf
 callers:
-  - name: Eric
+  - ha_user_id: 0123456789abcdef0123456789abcdef
     phone_numbers:
       - "+15551234567"
       - "+15559876543"
-    ha_user_id: 0123456789abcdef0123456789abcdef
     pin: "1234"
 ```
 
@@ -191,7 +188,7 @@ Gather mode and Conversation Relay mode use separate TTS configuration:
 - Do not use Home Assistant TTS engine IDs as Conversation Relay `ttsProvider` values. `block_elevenlabs` is valid only as a Home Assistant TTS engine ID, not as a Twilio Conversation Relay provider.
 - For the validated v2 path, Conversation Relay `ttsProvider` should be `ElevenLabs` and `voice` should be `h8eW5xfRUGVJrZhAFxqK`.
 
-The add-on schema accepts `auth_mode`, `unknown_caller_policy`, `callers`, and legacy `allowed_callers` from `twilio_voice_assistant/config.json`. The preferred caller shape is one Home Assistant user with a `phone_numbers` list and optional fallback `pin` in `callers`. The legacy `allowed_callers[*].phone_number` single-value shape remains supported for backward compatibility. Caller whitelist management is config-based for now; use the standard Home Assistant add-on options/YAML editor.
+The add-on schema accepts `auth_mode`, `unknown_caller_policy`, `callers`, and legacy `allowed_callers` from `twilio_voice_assistant/config.json`. The preferred caller shape is one Home Assistant user ID with a `phone_numbers` list and optional fallback `pin` in `callers`; `name` is optional. The legacy `allowed_callers[*].phone_number` single-value shape remains supported for backward compatibility. Caller whitelist management is config-based for now; use the standard Home Assistant add-on options/YAML editor.
 
 HA user IDs in `callers` or legacy `allowed_callers` should not include angle brackets. Use `5e738...`, not `<5e738...>`.
 

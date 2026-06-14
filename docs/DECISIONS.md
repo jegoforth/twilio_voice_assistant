@@ -270,11 +270,10 @@ Consequences:
 auth_mode: caller_whitelist | pin | caller_whitelist_or_pin
 unknown_caller_policy: reject | pin_fallback
 callers:
-  - name: Eric Goforth
+  - ha_user_id: 5e738examplehomeassistantuserid
     phone_numbers:
       - "+19013027364"
       - "+1XXXXXXXXXX"
-    ha_user_id: 5e738examplehomeassistantuserid
     pin: "1234"
 ```
 
@@ -288,6 +287,8 @@ callers:
 Implementation note:
 
 The implementation reads canonical `callers` and legacy `allowed_callers` from the standard Home Assistant add-on configuration path. Entries are normalized into the same flat phone-number lookup, logs use masked caller context, and the selected bridge mode starts only after a whitelist match or successful PIN fallback.
+
+`ha_user_id` is the required stable identity key for canonical `callers`. Configured `name` is optional and retained only as a fallback label. When the app matches a known caller or accepts a unified caller PIN, it resolves the Home Assistant user display name from `ha_user_id`; if lookup fails, it falls back to configured `name`, then `ha_user_id`.
 
 Startup configuration logging now runs from a FastAPI startup hook instead of module import so deployment logs clearly show the active authentication and bridge configuration when the app starts.
 

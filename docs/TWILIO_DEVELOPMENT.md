@@ -1,8 +1,8 @@
 # Twilio Development Guide
 
-This guide covers the Twilio side of development for Twilio Voice Assistant. It is focused on building and testing the public webhook, caller whitelist authentication, legacy PIN fallback, Gather fallback, and experimental Conversation Relay bridge.
+This guide covers the Twilio side of development for Twilio Voice Assistant. It is focused on building and testing the public webhook, caller whitelist authentication, legacy PIN fallback, deprecated Gather fallback, and preferred Conversation Relay bridge.
 
-For the target v2.0.0 architecture, read `docs/ARCHITECTURE.md` first. The important direction is that caller whitelist authentication is the preferred v2 path, `gather` remains the default compatibility bridge mode, and `conversation_relay` is the first text-only voice prototype.
+For the target v2.0.0 architecture, read `docs/ARCHITECTURE.md` first. The important direction is that caller whitelist authentication is the preferred v2 path, `conversation_relay` is the default and preferred voice bridge mode, and `gather` remains deprecated fallback compatibility mode.
 
 ## Auth Direction
 
@@ -10,7 +10,7 @@ The preferred v2 authentication path is caller whitelist matching:
 
 ```text
 Twilio From number
-  -> app normalizes/matches caller against allowed_callers
+  -> app normalizes/matches caller against callers / allowed_callers
   -> mapped Home Assistant user
   -> selected bridge mode
 ```
@@ -33,7 +33,7 @@ Twilio is responsible for:
 
 The app is responsible for:
 
-- Normalizing and matching `From` against `allowed_callers`.
+- Normalizing and matching `From` against canonical `callers` and legacy `allowed_callers`.
 - Mapping known callers to Home Assistant users.
 - Applying the unknown caller policy.
 - Falling back to PIN only when configured to do so.
@@ -114,24 +114,28 @@ twilio_auth_token: your_twilio_auth_token
 public_base_url: https://YOUR_PUBLIC_DOMAIN
 ```
 
-Preferred v2 caller whitelist auth:
+Preferred v2 unified caller identity config:
 
 ```yaml
 auth_mode: caller_whitelist
 unknown_caller_policy: reject
-allowed_callers:
+callers:
   - name: Eric
     phone_numbers:
       - "+15551234567"
       - "+15559876543"
     ha_user_id: 0123456789abcdef0123456789abcdef
+    pin: "1234"
   - name: Backup Admin
     phone_numbers:
       - "+15557654321"
     ha_user_id: fedcba9876543210fedcba9876543210
+    pin: "5678"
 ```
 
-Legacy single-number entries using `phone_number` still work:
+The canonical `callers` list is the migration target for caller identity. Each record can hold `name`, `ha_user_id`, one or more `phone_numbers`, and an optional fallback `pin`. The legacy `allowed_callers` list and admin PIN UI still work during migration.
+
+Legacy `allowed_callers` single-number entries using `phone_number` still work:
 
 ```yaml
 allowed_callers:
@@ -147,21 +151,22 @@ auth_mode: pin
 pin_mode: dtmf
 ```
 
-Caller whitelist with PIN fallback:
+Caller whitelist with PIN fallback using unified caller identity:
 
 ```yaml
 auth_mode: caller_whitelist_or_pin
 unknown_caller_policy: pin_fallback
 pin_mode: dtmf
-allowed_callers:
+callers:
   - name: Eric
     phone_numbers:
       - "+15551234567"
       - "+15559876543"
     ha_user_id: 0123456789abcdef0123456789abcdef
+    pin: "1234"
 ```
 
-Compatibility bridge mode:
+Deprecated fallback bridge mode:
 
 ```yaml
 voice_bridge_mode: gather
@@ -186,9 +191,9 @@ Gather mode and Conversation Relay mode use separate TTS configuration:
 - Do not use Home Assistant TTS engine IDs as Conversation Relay `ttsProvider` values. `block_elevenlabs` is valid only as a Home Assistant TTS engine ID, not as a Twilio Conversation Relay provider.
 - For the validated v2 path, Conversation Relay `ttsProvider` should be `ElevenLabs` and `voice` should be `h8eW5xfRUGVJrZhAFxqK`.
 
-The add-on schema accepts `auth_mode`, `unknown_caller_policy`, and `allowed_callers` from `twilio_voice_assistant/config.json`. The preferred caller shape is one Home Assistant user with a `phone_numbers` list. The legacy `phone_number` single-value shape remains supported for backward compatibility. Caller whitelist management is config-based for now; use the standard Home Assistant add-on options/YAML editor.
+The add-on schema accepts `auth_mode`, `unknown_caller_policy`, `callers`, and legacy `allowed_callers` from `twilio_voice_assistant/config.json`. The preferred caller shape is one Home Assistant user with a `phone_numbers` list and optional fallback `pin` in `callers`. The legacy `allowed_callers[*].phone_number` single-value shape remains supported for backward compatibility. Caller whitelist management is config-based for now; use the standard Home Assistant add-on options/YAML editor.
 
-HA user IDs in `allowed_callers` should not include angle brackets. Use `5e738...`, not `<5e738...>`.
+HA user IDs in `callers` or legacy `allowed_callers` should not include angle brackets. Use `5e738...`, not `<5e738...>`.
 
 ## Authentication Call Flows
 
@@ -237,7 +242,7 @@ Twilio call
 
 ## Gather Mode Build Path
 
-`gather` is the default bridge mode and should remain the regression baseline.
+`gather` is deprecated fallback compatibility mode and should remain the regression baseline while it exists.
 
 Known caller flow:
 
@@ -445,9 +450,9 @@ Minimum Twilio-side tests:
 
 | Area | Test | Expected result |
 | --- | --- | --- |
-| Caller whitelist | Known caller in `allowed_callers` | App maps `From` to the configured `ha_user_id` and starts the selected bridge mode. |
+| Caller whitelist | Known caller in `callers` | App maps `From` to the configured `ha_user_id` and starts the selected bridge mode. |
 | Caller whitelist | One caller entry with multiple `phone_numbers` | Each listed number maps to the same configured `ha_user_id`. |
-| Caller whitelist | Legacy `phone_number` entry | Single-number legacy config still maps to the configured `ha_user_id`. |
+| Caller whitelist | Legacy `allowed_callers[*].phone_number` entry | Single-number legacy config still maps to the configured `ha_user_id`. |
 | Caller whitelist | Unknown caller with `unknown_caller_policy: reject` | App rejects or politely hangs up without starting a bridge session. |
 | Caller whitelist | Unknown caller with `unknown_caller_policy: pin_fallback` | App prompts for PIN and continues only after successful PIN validation. |
 | Caller whitelist | Phone number logging | Logs mask the caller number and do not emit full E.164 numbers by default. |
@@ -496,7 +501,7 @@ If Twilio never reaches the app:
 If known callers are not recognized:
 
 - Confirm Twilio sends `From` in E.164 format, such as `+15551234567`.
-- Confirm `allowed_callers[*].phone_numbers` uses E.164 format.
+- Confirm `callers[*].phone_numbers` uses E.164 format.
 - Legacy `allowed_callers[*].phone_number` entries are still accepted.
 - Confirm number normalization does not strip or duplicate the country code.
 - Confirm the matching log masks the number but still indicates whether a match happened.

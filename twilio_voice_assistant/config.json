@@ -1,8 +1,8 @@
 {
   "name": "Twilio Voice Assistant",
-  "version": "1.3.7",
+  "version": "1.3.8",
   "slug": "twilio_voice_assistant",
-  "description": "Twilio webhook service with caller whitelist/PIN fallback authentication, Gather compatibility mode, experimental Conversation Relay text-only bridge, and Home Assistant Conversation integration.",
+  "description": "Twilio webhook service with caller identity/PIN fallback authentication, preferred Conversation Relay text-only bridge, deprecated Gather compatibility fallback, and Home Assistant Conversation integration.",
   "arch": ["amd64", "aarch64"],
   "startup": "services",
   "boot": "auto",
@@ -23,8 +23,9 @@
     "public_base_url": "",
     "auth_mode": "pin",
     "unknown_caller_policy": "reject",
+    "callers": [],
     "allowed_callers": [],
-    "voice_bridge_mode": "gather",
+    "voice_bridge_mode": "conversation_relay",
     "conversation_relay_tts_provider": "ElevenLabs",
     "conversation_relay_voice": "",
     "conversation_relay_transcription_provider": "Deepgram",
@@ -38,6 +39,15 @@
     "public_base_url": "str",
     "auth_mode": "list(caller_whitelist|pin|caller_whitelist_or_pin)?",
     "unknown_caller_policy": "list(reject|pin_fallback)?",
+    "callers": [
+      {
+        "name": "str",
+        "phone_number": "str?",
+        "phone_numbers": ["str?"],
+        "ha_user_id": "str",
+        "pin": "str?"
+      }
+    ],
     "allowed_callers": [
       {
         "name": "str",

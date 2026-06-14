@@ -43,28 +43,31 @@ Use this checklist for the next v2.0.0 validation pass. Keep test logs free of f
   - `conversation_relay_transcription_provider`
   - `conversation_relay_language`
   - `conversation_relay_voice_configured`
+  - `caller_identities_count`
   - `allowed_callers_count`
 - Startup logs do not include full caller phone numbers.
 
 ## Authentication
 
 - The active add-on manifest is `twilio_voice_assistant/config.json`.
+- The active schema includes `callers`.
 - The active schema includes `allowed_callers`.
 - After schema changes, the add-on version is bumped and Home Assistant shows the new version after repository refresh or reinstall.
-- Preferred multi-number caller whitelist configuration works from the standard add-on options/YAML editor:
+- Preferred unified caller identity configuration works from the standard add-on options/YAML editor:
 
 ```yaml
 auth_mode: caller_whitelist
 unknown_caller_policy: reject
-allowed_callers:
+callers:
   - name: Eric Goforth
     ha_user_id: 5e738examplehomeassistantuserid
     phone_numbers:
       - "+19013027364"
       - "+1XXXXXXXXXX"
+    pin: "1234"
 ```
 
-- Legacy single-number caller whitelist configuration still works:
+- Legacy `allowed_callers` single-number caller whitelist configuration still works:
 
 ```yaml
 auth_mode: caller_whitelist
@@ -75,12 +78,12 @@ allowed_callers:
     phone_number: "+19013027364"
 ```
 
-- HA user IDs in `allowed_callers` should not include angle brackets. Use `5e738...`, not `<5e738...>`.
+- HA user IDs in `callers` or legacy `allowed_callers` should not include angle brackets. Use `5e738...`, not `<5e738...>`.
 - `auth_mode: pin` still prompts for PIN on `/incoming_call`.
 - `auth_mode: pin` still reaches `/start_session` after a valid PIN.
 - `auth_mode: caller_whitelist` rejects an unknown caller when `unknown_caller_policy: reject`.
 - `auth_mode: caller_whitelist_or_pin` sends an unknown caller to PIN fallback when `unknown_caller_policy: pin_fallback`.
-- A known caller in `allowed_callers` reaches `/start_session` without PIN.
+- A known caller in `callers` reaches `/start_session` without PIN.
 - A known caller configured with preferred `phone_numbers` reaches `/start_session` from each listed number.
 - A known caller configured with legacy `phone_number` still reaches `/start_session`.
 - Tested successfully: an allowed caller matched the config, skipped PIN, and entered the conversation flow.
@@ -89,7 +92,8 @@ allowed_callers:
 
 ## Bridge Modes
 
-- `voice_bridge_mode: gather` remains the default compatibility path.
+- `voice_bridge_mode: conversation_relay` is the default and preferred v2 path.
+- `voice_bridge_mode: gather` is deprecated fallback compatibility mode.
 - Gather remains fallback compatibility mode.
 - Gather mode still records caller commands, processes them through Home Assistant Conversation, and plays generated `/audio/*` responses after authentication.
 - Conversation Relay is now the preferred voice bridge mode.

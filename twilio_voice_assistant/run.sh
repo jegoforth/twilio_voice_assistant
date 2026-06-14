@@ -36,6 +36,15 @@ os.environ['AUTH_MODE'] = str(
 os.environ['UNKNOWN_CALLER_POLICY'] = str(
     config.get('unknown_caller_policy', 'reject')
 ).strip().lower()
+callers = config.get('callers', [])
+if isinstance(callers, str):
+    try:
+        callers = json.loads(callers)
+    except:
+        callers = []
+if not isinstance(callers, list):
+    callers = []
+os.environ['CALLERS_JSON'] = json.dumps(callers)
 allowed_callers = config.get('allowed_callers', [])
 if isinstance(allowed_callers, str):
     try:
@@ -46,7 +55,7 @@ if not isinstance(allowed_callers, list):
     allowed_callers = []
 os.environ['ALLOWED_CALLERS_JSON'] = json.dumps(allowed_callers)
 os.environ['VOICE_BRIDGE_MODE'] = str(
-    config.get('voice_bridge_mode', 'gather')
+    config.get('voice_bridge_mode', 'conversation_relay')
 ).strip().lower()
 os.environ['CONVERSATION_RELAY_TTS_PROVIDER'] = str(
     config.get('conversation_relay_tts_provider', 'ElevenLabs')

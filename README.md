@@ -4,7 +4,7 @@ Call a Twilio phone number, enter a PIN, and talk to your Home Assistant voice a
 
 This Home Assistant add-on receives incoming Twilio calls, authenticates the caller with a PIN, transcribes spoken commands, sends them to Home Assistant Assist / Conversation, and plays the spoken response back over the phone.
 
-The current default mode remains the v1-compatible Gather/audio-file flow. The v2.0.0 target architecture is documented in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): the preferred path is a text-only bridge where external voice services handle STT/TTS and Home Assistant Conversation remains the assistant brain.
+The current default mode is the v2 Conversation Relay text bridge. The v2.0.0 target architecture is documented in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): external voice services handle STT/TTS and Home Assistant Conversation remains the assistant brain. The older Gather/audio-file flow remains available as deprecated fallback compatibility mode.
 
 ## Requirements
 
@@ -107,10 +107,11 @@ Open the add-on configuration page in Home Assistant and set:
   - `pin`: Legacy PIN-first behavior.
   - `caller_whitelist_or_pin`: Known callers skip PIN; unknown callers can use PIN fallback.
 - `unknown_caller_policy`: Defaults to `reject`. Use `pin_fallback` to allow unknown callers to try PIN auth.
-- `allowed_callers`: Optional list of known callers with `name`, E.164 `phone_numbers`, and Home Assistant `ha_user_id`. Legacy single-value `phone_number` entries still work. Configure this through the standard Home Assistant add-on options/YAML editor.
-- `voice_bridge_mode`: Optional bridge mode. Defaults to `gather`.
-  - `gather`: v1-compatible fallback mode using the existing local audio path.
-  - `conversation_relay`: Experimental v2 prototype using Twilio Conversation Relay.
+- `callers`: Preferred v2 caller identity list with `name`, E.164 `phone_numbers`, Home Assistant `ha_user_id`, and optional fallback `pin`.
+- `allowed_callers`: Legacy known-caller list. Prefer `callers` for new configuration.
+- `voice_bridge_mode`: Optional bridge mode. Defaults to `conversation_relay`.
+  - `conversation_relay`: Preferred v2 text bridge using Twilio Conversation Relay.
+  - `gather`: Deprecated v1-compatible fallback mode using the existing local audio path.
   - `elevenlabs_agent`: Reserved for a future ElevenLabs Agent experiment.
 - `conversation_relay_tts_provider`: Defaults to `ElevenLabs`.
 - `conversation_relay_voice`: Optional Conversation Relay voice identifier.
@@ -137,7 +138,7 @@ From the admin page:
    - Select the Home Assistant user for that PIN.
    - Click **Add PIN**.
 
-PINs and assistant settings are stored in `/share/twilio_voice_assistant` so they survive add-on rebuilds.
+PINs and assistant settings are stored in `/share/twilio_voice_assistant` so they survive add-on rebuilds. PIN management in the admin page is legacy compatibility; new caller identity configuration should move toward the `callers` add-on config list.
 
 ## Test
 
@@ -152,8 +153,8 @@ PINs and assistant settings are stored in `/share/twilio_voice_assistant` so the
 
 - Rotate your Twilio auth token if it is ever pasted into logs, screenshots, chat, or documentation.
 - The add-on currently uses local Whisper transcription for call audio before sending text to Home Assistant Conversation.
-- Caller whitelist authentication is the preferred v2 path. PIN authentication remains the default fallback/legacy path for compatibility.
-- Conversation Relay mode is experimental. After caller whitelist or PIN authentication, it returns `<Connect><ConversationRelay>` TwiML and expects Twilio to connect to the add-on websocket at `/conversation_relay`.
+- Caller whitelist authentication is the preferred v2 path. PIN authentication remains a fallback/legacy path for compatibility.
+- Conversation Relay mode is the preferred v2 bridge. After caller whitelist or PIN authentication, it returns `<Connect><ConversationRelay>` TwiML and expects Twilio to connect to the add-on websocket at `/conversation_relay`.
 - ElevenLabs TTS is the target voice provider for the v2.0.0 path.
 - The primary v2 path avoids local caller-audio and generated-TTS audio file handling; local audio files remain part of the `gather` fallback mode.
 - The selected Home Assistant TTS engine must be able to generate audio that Twilio can play through the public URL configured in `public_base_url`.

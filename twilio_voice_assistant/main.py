@@ -35,8 +35,9 @@ if PUBLIC_BASE_URL and not PUBLIC_BASE_URL.startswith(("http://", "https://")):
 DEBUG = os.getenv("DEBUG", "false").lower() == "true"
 AUTH_MODE = os.getenv("AUTH_MODE", "pin").strip().lower()
 UNKNOWN_CALLER_POLICY = os.getenv("UNKNOWN_CALLER_POLICY", "reject").strip().lower()
+CALLERS_JSON = os.getenv("CALLERS_JSON", "[]")
 ALLOWED_CALLERS_JSON = os.getenv("ALLOWED_CALLERS_JSON", "[]")
-VOICE_BRIDGE_MODE = os.getenv("VOICE_BRIDGE_MODE", "gather").strip().lower()
+VOICE_BRIDGE_MODE = os.getenv("VOICE_BRIDGE_MODE", "conversation_relay").strip().lower()
 CONVERSATION_RELAY_TTS_PROVIDER = os.getenv(
     "CONVERSATION_RELAY_TTS_PROVIDER", "ElevenLabs"
 ).strip()
@@ -80,9 +81,9 @@ SUPPORTED_VOICE_BRIDGE_MODES = {
 if VOICE_BRIDGE_MODE not in SUPPORTED_VOICE_BRIDGE_MODES:
     print(
         "WARNING: Unsupported voice_bridge_mode "
-        f"{VOICE_BRIDGE_MODE!r}; falling back to 'gather'"
+        f"{VOICE_BRIDGE_MODE!r}; falling back to 'conversation_relay'"
     )
-    VOICE_BRIDGE_MODE = "gather"
+    VOICE_BRIDGE_MODE = "conversation_relay"
 
 SUPPORTED_CONVERSATION_RELAY_TTS_PROVIDERS = {
     "ElevenLabs",
@@ -175,16 +176,34 @@ def caller_phone_numbers(caller: dict) -> list[str]:
     return [number for number in raw_numbers if isinstance(number, str)]
 
 
-def load_allowed_callers():
-    """Parse allowed callers into a flat phone-number lookup."""
+def load_json_list(value: str, config_name: str) -> list:
     try:
-        callers = json.loads(ALLOWED_CALLERS_JSON)
+        parsed = json.loads(value)
     except Exception as e:
-        print(f"WARNING: Could not parse allowed_callers: {e}")
-        return [], 0
+        print(f"WARNING: Could not parse {config_name}: {e}")
+        return []
 
+    if not isinstance(parsed, list):
+        print(f"WARNING: {config_name} must be a list; ignoring configured value")
+        return []
+    return parsed
+
+
+def normalize_ha_user_id(user_id: str | None, config_name: str) -> str:
+    normalized = (user_id or "").strip()
+    if normalized.startswith("<") and normalized.endswith(">"):
+        print(
+            f"WARNING: {config_name} ha_user_id should not include angle brackets; "
+            "stripping them"
+        )
+        normalized = normalized[1:-1].strip()
+    return normalized
+
+
+def normalize_callers_for_lookup(callers, config_name: str):
+    """Parse caller identity records into a flat phone-number lookup."""
     if not isinstance(callers, list):
-        print("WARNING: allowed_callers must be a list; ignoring configured value")
+        print(f"WARNING: {config_name} must be a list; ignoring configured value")
         return [], 0
 
     normalized_callers = []
@@ -192,7 +211,7 @@ def load_allowed_callers():
     for caller in callers:
         if not isinstance(caller, dict):
             continue
-        ha_user_id = (caller.get("ha_user_id") or "").strip()
+        ha_user_id = normalize_ha_user_id(caller.get("ha_user_id"), config_name)
         if not ha_user_id:
             continue
         caller_name = (caller.get("name") or ha_user_id).strip() or ha_user_id
@@ -214,7 +233,57 @@ def load_allowed_callers():
     return normalized_callers, valid_caller_records
 
 
+def load_caller_identity_records():
+    return load_json_list(CALLERS_JSON, "callers")
+
+
+def load_legacy_allowed_caller_records():
+    return load_json_list(ALLOWED_CALLERS_JSON, "allowed_callers")
+
+
+def load_allowed_callers():
+    """Build the effective caller whitelist from canonical and legacy config."""
+    caller_records = load_caller_identity_records()
+    legacy_records = load_legacy_allowed_caller_records()
+    callers, caller_count = normalize_callers_for_lookup(caller_records, "callers")
+    legacy_callers, legacy_count = normalize_callers_for_lookup(
+        legacy_records,
+        "allowed_callers",
+    )
+    return callers + legacy_callers, caller_count + legacy_count
+
+
+def load_caller_identity_pin_map():
+    pin_map = {}
+    for caller in load_caller_identity_records():
+        if not isinstance(caller, dict):
+            continue
+        pin = str(caller.get("pin", "")).strip()
+        if not pin:
+            continue
+        if not pin.isdigit() or len(pin) != 4:
+            print("WARNING: callers PIN entries must be 4 digits; ignoring one entry")
+            continue
+        ha_user_id = normalize_ha_user_id(caller.get("ha_user_id"), "callers")
+        if not ha_user_id:
+            continue
+        caller_name = (caller.get("name") or ha_user_id).strip() or ha_user_id
+        pin_map[pin] = {
+            "user_id": ha_user_id,
+            "user_name": caller_name,
+        }
+    return pin_map
+
+
+def load_effective_pin_map():
+    """Use legacy/admin PINs plus canonical caller PINs during migration."""
+    pin_map = load_pin_map()
+    pin_map.update(load_caller_identity_pin_map())
+    return pin_map
+
+
 ALLOWED_CALLERS, ALLOWED_CALLER_RECORD_COUNT = load_allowed_callers()
+CALLER_IDENTITY_RECORD_COUNT = len(load_caller_identity_records())
 
 
 def find_allowed_caller(from_number: str | None):
@@ -240,8 +309,14 @@ def log_startup_configuration():
         ),
         conversation_relay_language=CONVERSATION_RELAY_LANGUAGE,
         conversation_relay_voice_configured=bool(CONVERSATION_RELAY_VOICE),
+        caller_identities_count=CALLER_IDENTITY_RECORD_COUNT,
         allowed_callers_count=ALLOWED_CALLER_RECORD_COUNT,
     )
+    if VOICE_BRIDGE_MODE == "gather":
+        print(
+            "WARNING: gather bridge mode is deprecated fallback compatibility mode; "
+            "conversation_relay is the preferred v2 voice bridge."
+        )
     print("TODO: Add Twilio webhook signature validation before production use.")
     print("TODO: Add Conversation Relay websocket validation before production use.")
 
@@ -908,7 +983,7 @@ async def send_to_home_assistant_conversation(
 
 async def handle_pin_digits(digits: str, call_sid: str | None = None):
     global PIN_MAP
-    PIN_MAP = load_pin_map()
+    PIN_MAP = load_effective_pin_map()
     digits = normalize_digits(digits)
 
     if DEBUG:
@@ -1631,7 +1706,7 @@ async def check_pin(
     Digits: str | None = Form(None),
 ):
     global PIN_MAP
-    PIN_MAP = load_pin_map()
+    PIN_MAP = load_effective_pin_map()
     
     try:
         if Digits:

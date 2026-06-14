@@ -25,6 +25,8 @@ Use this checklist for the next v2.0.0 validation pass. Keep test logs free of f
 - `auth_mode: caller_whitelist` rejects an unknown caller when `unknown_caller_policy: reject`.
 - `auth_mode: caller_whitelist_or_pin` sends an unknown caller to PIN fallback when `unknown_caller_policy: pin_fallback`.
 - A known caller in `allowed_callers` reaches `/start_session` without PIN.
+- A known caller configured with preferred `phone_numbers` reaches `/start_session` from each listed number.
+- A known caller configured with legacy `phone_number` still reaches `/start_session`.
 - Caller numbers are masked in logs.
 
 ## Bridge Modes

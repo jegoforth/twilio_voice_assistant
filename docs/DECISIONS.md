@@ -270,7 +270,9 @@ auth_mode: caller_whitelist | pin | caller_whitelist_or_pin
 unknown_caller_policy: reject | pin_fallback
 allowed_callers:
   - name: Eric Goforth
-    phone_number: "+19013027364"
+    phone_numbers:
+      - "+19013027364"
+      - "+1XXXXXXXXXX"
     ha_user_id: "<home_assistant_user_id>"
 ```
 
@@ -288,6 +290,10 @@ The first implementation reads `allowed_callers` from add-on configuration, norm
 Caller whitelist administration is not yet exposed in the admin UI.
 
 Startup configuration logging now runs from a FastAPI startup hook instead of module import so deployment logs clearly show the active authentication and bridge configuration when the app starts.
+
+Caller whitelist parsing now supports the preferred multi-number shape, where one Home Assistant user has a `phone_numbers` list. The legacy single-value `phone_number` shape remains supported and is normalized into the same flat lookup table internally.
+
+The Home Assistant add-on schema can represent the nested `phone_numbers` list, but nested list-of-record editing may be awkward in the normal add-on configuration UI. Allowed caller management should stay config-file based for now; a dedicated admin UI or future options flow should be proposed separately before implementation.
 
 ## Decision 017: Treat ARCHITECTURE.md as the stable guardrail document
 

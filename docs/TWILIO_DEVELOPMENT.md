@@ -121,11 +121,23 @@ auth_mode: caller_whitelist
 unknown_caller_policy: reject
 allowed_callers:
   - name: Eric
-    phone_number: "+15551234567"
+    phone_numbers:
+      - "+15551234567"
+      - "+15559876543"
     ha_user_id: 0123456789abcdef0123456789abcdef
   - name: Backup Admin
-    phone_number: "+15557654321"
+    phone_numbers:
+      - "+15557654321"
     ha_user_id: fedcba9876543210fedcba9876543210
+```
+
+Legacy single-number entries using `phone_number` still work:
+
+```yaml
+allowed_callers:
+  - name: Eric
+    phone_number: "+15551234567"
+    ha_user_id: 0123456789abcdef0123456789abcdef
 ```
 
 PIN-only legacy auth:
@@ -143,7 +155,9 @@ unknown_caller_policy: pin_fallback
 pin_mode: dtmf
 allowed_callers:
   - name: Eric
-    phone_number: "+15551234567"
+    phone_numbers:
+      - "+15551234567"
+      - "+15559876543"
     ha_user_id: 0123456789abcdef0123456789abcdef
 ```
 
@@ -165,7 +179,7 @@ conversation_relay_language: en-US
 
 Leave `conversation_relay_voice` empty until the Twilio account has a confirmed Conversation Relay voice ID.
 
-The add-on schema now accepts `auth_mode`, `unknown_caller_policy`, and `allowed_callers`. Caller whitelist management is configuration-file based in this phase; an admin UI for allowed callers is still future work.
+The add-on schema accepts `auth_mode`, `unknown_caller_policy`, and `allowed_callers`. The preferred caller shape is one Home Assistant user with a `phone_numbers` list. The legacy `phone_number` single-value shape remains supported for backward compatibility. Caller whitelist management is configuration-file based in this phase; an admin UI for allowed callers is still future work.
 
 ## Authentication Call Flows
 
@@ -403,6 +417,8 @@ Minimum Twilio-side tests:
 | Area | Test | Expected result |
 | --- | --- | --- |
 | Caller whitelist | Known caller in `allowed_callers` | App maps `From` to the configured `ha_user_id` and starts the selected bridge mode. |
+| Caller whitelist | One caller entry with multiple `phone_numbers` | Each listed number maps to the same configured `ha_user_id`. |
+| Caller whitelist | Legacy `phone_number` entry | Single-number legacy config still maps to the configured `ha_user_id`. |
 | Caller whitelist | Unknown caller with `unknown_caller_policy: reject` | App rejects or politely hangs up without starting a bridge session. |
 | Caller whitelist | Unknown caller with `unknown_caller_policy: pin_fallback` | App prompts for PIN and continues only after successful PIN validation. |
 | Caller whitelist | Phone number logging | Logs mask the caller number and do not emit full E.164 numbers by default. |
@@ -451,7 +467,8 @@ If Twilio never reaches the app:
 If known callers are not recognized:
 
 - Confirm Twilio sends `From` in E.164 format, such as `+15551234567`.
-- Confirm `allowed_callers[*].phone_number` uses E.164 format.
+- Confirm `allowed_callers[*].phone_numbers` uses E.164 format.
+- Legacy `allowed_callers[*].phone_number` entries are still accepted.
 - Confirm number normalization does not strip or duplicate the country code.
 - Confirm the matching log masks the number but still indicates whether a match happened.
 

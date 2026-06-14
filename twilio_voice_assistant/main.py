@@ -144,35 +144,62 @@ def normalize_phone_number(phone_number: str | None) -> str | None:
     return f"+{digits}"
 
 
+def caller_phone_numbers(caller: dict) -> list[str]:
+    """Return legacy and preferred caller numbers without logging them."""
+    raw_numbers = []
+    legacy_number = caller.get("phone_number")
+    if legacy_number:
+        raw_numbers.append(legacy_number)
+
+    phone_numbers = caller.get("phone_numbers") or []
+    if isinstance(phone_numbers, str):
+        raw_numbers.append(phone_numbers)
+    elif isinstance(phone_numbers, list):
+        raw_numbers.extend(phone_numbers)
+
+    return [number for number in raw_numbers if isinstance(number, str)]
+
+
 def load_allowed_callers():
-    """Parse allowed callers from add-on configuration without logging numbers."""
+    """Parse allowed callers into a flat phone-number lookup."""
     try:
         callers = json.loads(ALLOWED_CALLERS_JSON)
     except Exception as e:
         print(f"WARNING: Could not parse allowed_callers: {e}")
-        return []
+        return [], 0
 
     if not isinstance(callers, list):
         print("WARNING: allowed_callers must be a list; ignoring configured value")
-        return []
+        return [], 0
 
     normalized_callers = []
+    valid_caller_records = 0
     for caller in callers:
         if not isinstance(caller, dict):
             continue
-        normalized_number = normalize_phone_number(caller.get("phone_number"))
         ha_user_id = (caller.get("ha_user_id") or "").strip()
-        if not normalized_number or not ha_user_id:
+        if not ha_user_id:
             continue
-        normalized_callers.append({
-            "name": (caller.get("name") or ha_user_id).strip() or ha_user_id,
-            "phone_number": normalized_number,
-            "ha_user_id": ha_user_id,
-        })
-    return normalized_callers
+        caller_name = (caller.get("name") or ha_user_id).strip() or ha_user_id
+        normalized_numbers = {
+            normalized_number
+            for raw_number in caller_phone_numbers(caller)
+            if (normalized_number := normalize_phone_number(raw_number))
+        }
+        if not normalized_numbers:
+            continue
+
+        valid_caller_records += 1
+        for normalized_number in normalized_numbers:
+            normalized_callers.append({
+                "name": caller_name,
+                "phone_number": normalized_number,
+                "ha_user_id": ha_user_id,
+            })
+    return normalized_callers, valid_caller_records
 
 
-ALLOWED_CALLERS = load_allowed_callers()
+ALLOWED_CALLERS, ALLOWED_CALLER_RECORD_COUNT = load_allowed_callers()
 
 
 def find_allowed_caller(from_number: str | None):
@@ -198,7 +225,7 @@ def log_startup_configuration():
         ),
         conversation_relay_language=CONVERSATION_RELAY_LANGUAGE,
         conversation_relay_voice_configured=bool(CONVERSATION_RELAY_VOICE),
-        allowed_callers_count=len(ALLOWED_CALLERS),
+        allowed_callers_count=ALLOWED_CALLER_RECORD_COUNT,
     )
     print("TODO: Add Twilio webhook signature validation before production use.")
     print("TODO: Add Conversation Relay websocket validation before production use.")

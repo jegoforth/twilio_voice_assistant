@@ -107,7 +107,7 @@ Open the add-on configuration page in Home Assistant and set:
   - `pin`: Legacy PIN-first behavior.
   - `caller_whitelist_or_pin`: Known callers skip PIN; unknown callers can use PIN fallback.
 - `unknown_caller_policy`: Defaults to `reject`. Use `pin_fallback` to allow unknown callers to try PIN auth.
-- `allowed_callers`: Optional list of known callers with `name`, E.164 `phone_number`, and Home Assistant `ha_user_id`.
+- `allowed_callers`: Optional list of known callers with `name`, E.164 `phone_numbers`, and Home Assistant `ha_user_id`. Legacy single-value `phone_number` entries still work.
 - `voice_bridge_mode`: Optional bridge mode. Defaults to `gather`.
   - `gather`: v1-compatible fallback mode using the existing local audio path.
   - `conversation_relay`: Experimental v2 prototype using Twilio Conversation Relay.

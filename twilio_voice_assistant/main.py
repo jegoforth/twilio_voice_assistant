@@ -30,7 +30,6 @@ if PUBLIC_BASE_URL and not PUBLIC_BASE_URL.startswith(("http://", "https://")):
 DEBUG = os.getenv("DEBUG", "false").lower() == "true"
 AUTH_MODE = os.getenv("AUTH_MODE", "pin").strip().lower()
 UNKNOWN_CALLER_POLICY = os.getenv("UNKNOWN_CALLER_POLICY", "reject").strip().lower()
-CALLERS_JSON = os.getenv("CALLERS_JSON", "[]")
 CONVERSATION_RELAY_TTS_PROVIDER = os.getenv(
     "CONVERSATION_RELAY_TTS_PROVIDER", "ElevenLabs"
 ).strip()
@@ -343,10 +342,6 @@ def normalize_callers_for_lookup(callers, config_name: str):
     return normalized_callers, valid_caller_records
 
 
-def load_config_caller_identity_records():
-    return load_json_list(CALLERS_JSON, "callers")
-
-
 def load_admin_caller_identity_records():
     try:
         if os.path.exists(CALLERS_FILE):
@@ -372,7 +367,7 @@ def save_admin_caller_identity_records(callers):
 
 
 def load_caller_identity_records():
-    return load_config_caller_identity_records() + load_admin_caller_identity_records()
+    return load_admin_caller_identity_records()
 
 
 def load_caller_access_lookup():
@@ -1178,7 +1173,7 @@ async def admin_ui(request: Request):
             
             <div class="form-section">
                 <h2 style="font-size: 18px; margin-bottom: 15px; color: #333;">Caller Access</h2>
-                <p class="muted" style="margin-bottom: 15px;">Preferred path for known callers. Add new or editable users here. Add-on config caller records are still honored during migration and appear below as read-only Config records.</p>
+                <p class="muted" style="margin-bottom: 15px;">Preferred and only caller identity source. Add known callers and optional fallback PINs here.</p>
                 <div class="form-group">
                     <label for="callerUser">Home Assistant User:</label>
                     <select id="callerUser">
@@ -1325,7 +1320,7 @@ async def admin_ui(request: Request):
                         meta.appendChild(pinBadge);
                         const sourceBadge = document.createElement('span');
                         sourceBadge.className = 'badge';
-                        sourceBadge.textContent = record.source === 'admin' ? 'Caller Access' : 'Config read-only';
+                        sourceBadge.textContent = 'Caller Access';
                         meta.appendChild(sourceBadge);
                         info.appendChild(meta);
                         item.appendChild(info);
@@ -1479,17 +1474,12 @@ async def get_caller_access(request: Request):
     if error:
         print(f"Could not fetch user names for caller access list: {error}")
 
-    config_records = [
-        caller_record_display(record, None, "config", user_map)
-        for record in load_config_caller_identity_records()
-        if isinstance(record, dict)
-    ]
     admin_records = [
         caller_record_display(record, index, "admin", user_map)
         for index, record in enumerate(load_admin_caller_identity_records())
         if isinstance(record, dict)
     ]
-    return {"callers": config_records + admin_records}
+    return {"callers": admin_records}
 
 
 @app.post("/admin/api/caller-access")

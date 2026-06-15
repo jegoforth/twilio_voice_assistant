@@ -5,10 +5,10 @@ Use this checklist for the current Conversation Relay-only add-on. Keep test log
 ## Latest Validated Results
 
 - Version `1.4.3` makes Caller Access the single source of truth for caller identity and fallback PINs.
+- Version `1.4.4` removes the remaining add-on YAML `callers` option.
 - Caller Access web UI is working.
-- Caller Access records in `/share/twilio_voice_assistant/callers.json` are the preferred caller identity source.
+- Caller Access records in `/share/twilio_voice_assistant/callers.json` are the only caller identity source.
 - Optional DTMF fallback PINs are managed only on Caller Access records.
-- Add-on YAML `callers` remains supported as advanced/import-only configuration and appears read-only in the UI.
 - Legacy `allowed_callers` has been removed from add-on config and runtime parsing.
 - Separate legacy PIN-map storage, Legacy PIN Management UI, and `/admin/api/pins` have been removed.
 - Conversation Relay is the only supported voice bridge.
@@ -48,32 +48,10 @@ Use this checklist for the current Conversation Relay-only add-on. Keep test log
 ## Authentication
 
 - The active add-on manifest is `twilio_voice_assistant/config.json`.
+- The active schema no longer includes `callers`.
 - The active schema no longer includes `allowed_callers`.
 - Normal caller identity setup uses Caller Access in the web UI.
 - Fallback PINs are configured on Caller Access records.
-- Advanced/import-only caller identity configuration still works from the add-on options/YAML editor:
-
-```yaml
-auth_mode: caller_whitelist_or_pin
-unknown_caller_policy: pin_fallback
-callers:
-  - ha_user_id: 5e738examplehomeassistantuserid
-    phone_numbers:
-      - "+15551234567"
-      - "+15559876543"
-    pin: "1234"
-```
-
-- Optional `name` remains accepted as a fallback if Home Assistant user display-name lookup fails:
-
-```yaml
-callers:
-  - name: Eric Goforth
-    ha_user_id: 5e738examplehomeassistantuserid
-    phone_numbers:
-      - "+15551234567"
-```
-
 - HA user IDs should not include angle brackets. Use `5e738...`, not `<5e738...>`.
 - `auth_mode: pin` prompts for DTMF PIN on `/incoming_call`.
 - `auth_mode: pin` reaches `/start_session` after a valid Caller Access PIN.
@@ -94,7 +72,6 @@ callers:
 - Adding a caller with multiple phone numbers works.
 - Adding a caller with a fallback PIN works.
 - Existing admin-managed Caller Access records show in the Caller Access list.
-- Existing add-on config `callers` records show in the Caller Access list as read-only config-sourced records.
 - Saved caller records show Home Assistant display names and masked phone numbers only.
 - Saved caller records show only `PIN set` or `No PIN`; PIN values are not displayed.
 - Deleting an admin-managed Caller Access record works.
@@ -133,6 +110,7 @@ callers:
 - `/audio/*` is no longer mounted.
 - `voice_bridge_mode` is no longer an add-on option.
 - `pin_mode` is no longer an add-on option; PIN fallback is DTMF only.
+- `callers` is no longer an add-on option.
 - `allowed_callers` is no longer an add-on option.
 - Legacy PIN-map storage is no longer loaded.
 - Legacy PIN Management UI is removed.

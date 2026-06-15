@@ -36,15 +36,6 @@ os.environ['AUTH_MODE'] = str(
 os.environ['UNKNOWN_CALLER_POLICY'] = str(
     config.get('unknown_caller_policy', 'reject')
 ).strip().lower()
-callers = config.get('callers', [])
-if isinstance(callers, str):
-    try:
-        callers = json.loads(callers)
-    except:
-        callers = []
-if not isinstance(callers, list):
-    callers = []
-os.environ['CALLERS_JSON'] = json.dumps(callers)
 os.environ['CONVERSATION_RELAY_TTS_PROVIDER'] = str(
     config.get('conversation_relay_tts_provider', 'ElevenLabs')
 ).strip()

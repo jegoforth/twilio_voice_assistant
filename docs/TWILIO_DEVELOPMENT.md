@@ -15,7 +15,9 @@ Twilio call
   -> ElevenLabs voice through Twilio Conversation Relay
 ```
 
-Version `1.4.3` makes Caller Access the single source of truth for caller identity and fallback PINs. Caller Access records are stored in `/share/twilio_voice_assistant/callers.json`. Add-on YAML `callers` remains supported as advanced/import-only configuration and is shown read-only in the UI. Legacy `allowed_callers`, the separate PIN map, Legacy PIN Management UI, and `/admin/api/pins` have been removed.
+Version `1.4.3` makes Caller Access the single source of truth for caller identity and fallback PINs. Caller Access records are stored in `/share/twilio_voice_assistant/callers.json`. Legacy `allowed_callers`, the separate PIN map, Legacy PIN Management UI, and `/admin/api/pins` have been removed.
+
+Version `1.4.4` removes the remaining add-on YAML `callers` option. Caller Access records in `/share/twilio_voice_assistant/callers.json` are now the only caller identity and fallback PIN source.
 
 Version `1.4.2` makes secure Conversation Relay the normal product path. Twilio HTTP request signature validation is enabled for `/incoming_call`, `/check_pin`, and `/start_session` unless the explicit development-only unsigned request bypass is enabled. `/start_session` and Conversation Relay websocket setup are protected with a short-lived signed session token generated only after caller whitelist or PIN authentication.
 
@@ -99,26 +101,10 @@ public_base_url: https://YOUR_PUBLIC_DOMAIN
 
 Preferred Caller Access admin flow:
 
-- Leave add-on config `callers` empty for normal day-to-day use.
 - Add users through the Caller Access web UI.
 - Caller Access stores admin-managed records in `/share/twilio_voice_assistant/callers.json`.
 - Fallback PINs are optional and stored on Caller Access records.
 - PIN fallback is DTMF-only.
-
-Advanced/import-only caller identity config:
-
-```yaml
-auth_mode: caller_whitelist_or_pin
-unknown_caller_policy: pin_fallback
-callers:
-  - ha_user_id: 0123456789abcdef0123456789abcdef
-    phone_numbers:
-      - "+15551234567"
-      - "+15559876543"
-    pin: "1234"
-```
-
-Each `callers` record requires `ha_user_id` and one or more `phone_numbers`. It can also include an optional fallback `pin` and optional `name`. Runtime greetings resolve the Home Assistant user display name from `ha_user_id` when available. The optional configured `name` is only a fallback when Home Assistant user lookup fails.
 
 HA user IDs should not include angle brackets. Use `5e738...`, not `<5e738...>`.
 
@@ -149,7 +135,6 @@ Use `conversation_relay_voice: h8eW5xfRUGVJrZhAFxqK` for the confirmed Elspeth E
 - Shows existing records with masked phone numbers only.
 - Shows only `PIN set` or `No PIN`; PIN values are write-only in the UI.
 - Allows deleting admin-managed caller records.
-- Shows add-on config `callers` records as read-only config-sourced records.
 - Does not expose Legacy PIN Management.
 - Does not expose `/admin/api/pins`.
 

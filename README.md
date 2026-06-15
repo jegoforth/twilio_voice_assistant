@@ -6,6 +6,8 @@ This Home Assistant add-on receives incoming Twilio calls, authenticates known c
 
 The current default mode is the v2 Conversation Relay text bridge. The v2.0.0 target architecture is documented in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): external voice services handle STT/TTS and Home Assistant Conversation remains the assistant brain. The older Gather/audio-file flow remains available as deprecated fallback compatibility mode.
 
+Version `1.3.13` was the cleanup baseline after Caller Access UI validation. Version `1.3.14` is the lightweight Conversation Relay runtime baseline: Whisper is no longer loaded at startup and is lazy-loaded only for deprecated Gather or `pin_mode: speech` paths.
+
 ## Requirements
 
 Before installing, make sure you have:
@@ -161,5 +163,8 @@ Validated path: leave add-on config `callers` and `allowed_callers` empty for no
 - Conversation Relay mode is the preferred/default v2 bridge. After caller whitelist or PIN authentication, it returns `<Connect><ConversationRelay>` TwiML and expects Twilio to connect to the add-on websocket at `/conversation_relay`.
 - ElevenLabs TTS is the target voice provider for the v2.0.0 path.
 - The primary v2 path avoids local caller-audio and generated-TTS audio file handling; local audio files remain part of the deprecated `gather` fallback mode only.
+- Conversation Relay does not load Whisper at startup and does not use local STT/TTS processing.
+- Whisper is lazy-loaded only if deprecated Gather or `pin_mode: speech` needs local recording transcription.
+- `pin_mode: speech` is deprecated legacy behavior because it depends on local recording/transcription.
 - Home Assistant TTS engine settings are needed only for deprecated Gather fallback.
 - Generated audio is the only content served from `/audio`, and `/audio` is needed only for deprecated Gather fallback. Admin data and PIN settings are not served from the public audio route.

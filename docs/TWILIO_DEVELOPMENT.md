@@ -122,6 +122,7 @@ Preferred Caller Access admin flow:
 - Add-on YAML `callers` remains supported but should be considered advanced/manual configuration.
 - Legacy `allowed_callers` remains migration/fallback only.
 - Legacy separate PIN management is no longer the preferred path.
+- `pin_mode: speech` is legacy/deprecated because it depends on local recording/transcription.
 
 Validated Caller Access behavior:
 
@@ -187,6 +188,8 @@ Deprecated Gather fallback bridge mode:
 voice_bridge_mode: gather
 ```
 
+Gather is the only bridge mode that uses local Whisper, Home Assistant TTS file generation, and `/audio/*`. Those resources are lazy/conditional in the normal runtime and should not be treated as part of the Conversation Relay path.
+
 Preferred Conversation Relay bridge mode:
 
 ```yaml
@@ -205,6 +208,8 @@ Gather mode and Conversation Relay mode use separate TTS configuration:
 - Conversation Relay mode uses Twilio Conversation Relay TTS settings from add-on config. `conversation_relay_tts_provider` must be a Twilio-supported provider: `ElevenLabs`, `Google`, or `Amazon`.
 - Do not use Home Assistant TTS engine IDs as Conversation Relay `ttsProvider` values. `block_elevenlabs` is valid only as a Home Assistant TTS engine ID, not as a Twilio Conversation Relay provider.
 - For the validated v2 path, Conversation Relay `ttsProvider` should be `ElevenLabs` and `voice` should be `h8eW5xfRUGVJrZhAFxqK`.
+- Conversation Relay does not load Whisper at startup and avoids local audio files plus local STT/TTS processing.
+- Whisper is lazy-loaded only for deprecated Gather or `pin_mode: speech` paths.
 
 The add-on schema accepts `auth_mode`, `unknown_caller_policy`, `callers`, and legacy `allowed_callers` from `twilio_voice_assistant/config.json`. The preferred caller shape is one Home Assistant user ID with a `phone_numbers` list and optional fallback `pin` in `callers`; `name` is optional. The legacy `allowed_callers[*].phone_number` single-value shape remains supported for backward compatibility, and `allowed_callers[*].name` is optional so saved options are not blocked during migration. Caller Access is the preferred admin model for new entries.
 
@@ -321,6 +326,9 @@ Expected TwiML for PIN fallback with `pin_mode: dtmf`:
 
 Stable v2 baseline:
 
+- Version `1.3.13` was the cleanup baseline after Caller Access UI validation.
+- Version `1.3.14` is the lightweight Conversation Relay runtime baseline.
+- Conversation Relay no longer loads Whisper at startup.
 - Version `1.3.8` is the stable unified-auth Conversation Relay baseline.
 - Unified `callers` config works.
 - Known caller phone numbers skip PIN and enter Conversation Relay.
@@ -503,6 +511,8 @@ Minimum Twilio-side tests:
 | `conversation_relay` | Websocket connects | Logs include `websocket_connected`. |
 | `conversation_relay` | Final prompt arrives | Logs include `transcript_text_received` and Home Assistant request timing. |
 | `conversation_relay` | Home Assistant responds | App sends a `text` message back to Twilio with `last: true`. |
+| Startup | Default Conversation Relay mode | Startup logs say local Whisper/audio pipeline is not initialized. |
+| Startup | Deprecated Gather mode | Startup logs warn that Gather is deprecated and local Whisper/audio will lazy-load on first use. |
 
 ## Useful Logs
 

@@ -4,6 +4,12 @@ Use this checklist for the next v2.0.0 validation pass. Keep test logs free of f
 
 ## Latest Validated Results
 
+- Version `1.3.13` was the cleanup baseline after Caller Access UI validation.
+- Version `1.3.14` is the lightweight Conversation Relay runtime baseline.
+- Conversation Relay no longer loads Whisper at startup.
+- Whisper is lazy-loaded only for deprecated Gather or `pin_mode: speech` paths.
+- Conversation Relay avoids local audio files and local STT/TTS processing.
+- `pin_mode: speech` is legacy/deprecated because it depends on local recording/transcription.
 - Caller Access web UI is working.
 - All users were removed from `callers` and `allowed_callers` in the add-on configuration tab.
 - Users were added through the Caller Access web UI.
@@ -68,7 +74,11 @@ Use this checklist for the next v2.0.0 validation pass. Keep test logs free of f
   - `conversation_relay_voice_configured`
   - `caller_identities_count`
   - `allowed_callers_count`
+  - `local_whisper_loaded: false`
+  - `local_audio_route_enabled: false` in normal Conversation Relay mode
 - Startup logs do not include full caller phone numbers.
+- Default Conversation Relay startup logs state that the local Whisper/audio pipeline is not initialized.
+- Gather startup logs warn that Gather is deprecated and the local Whisper/audio pipeline will be lazy-loaded on first use.
 
 ## Authentication
 
@@ -157,6 +167,8 @@ allowed_callers:
 - Conversation Relay TwiML omits `voice` when `conversation_relay_voice` is blank or `default`.
 - Conversation Relay websocket sends final transcript text to Home Assistant Conversation without local TTS generation.
 - Conversation Relay mode does not write caller audio, generated TTS audio, transient transcripts, or transient response text to disk.
+- Conversation Relay mode does not mount or use `/audio/*`.
+- Whisper is not imported or loaded until a deprecated local recording/transcription path is used.
 - Conversation Relay mode with caller whitelist authentication and ElevenLabs TTS through Twilio Conversation Relay is validated on the active Twilio account.
 
 ## Security TODOs Before Production

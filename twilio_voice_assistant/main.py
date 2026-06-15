@@ -7,7 +7,6 @@ import requests
 import httpx
 import websockets
 import asyncio
-import whisper
 import re
 import os
 import json
@@ -20,11 +19,7 @@ from urllib.parse import quote
 DATA_DIR = "/share/twilio_voice_assistant"
 AUDIO_DIR = f"{DATA_DIR}/audio"
 INGRESS_PROXY_IP = "172.30.32.2"
-os.makedirs(AUDIO_DIR, exist_ok=True)
-
-# Deprecated Gather fallback only. Conversation Relay is the preferred text path
-# and does not use local Whisper/audio files.
-model = whisper.load_model("tiny")
+WHISPER_MODEL = None
 
 # Load configuration from environment
 TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID")
@@ -136,6 +131,20 @@ def log_timing(event: str, **fields):
 def debug_log(event: str, **fields):
     if DEBUG:
         print("DEBUG " + json.dumps({"event": event, **fields}, sort_keys=True))
+
+
+def get_whisper_model():
+    """Lazy-load Whisper only for deprecated Gather or speech-PIN paths."""
+    global WHISPER_MODEL
+    if WHISPER_MODEL is None:
+        print(
+            "WARNING: Loading local Whisper model for deprecated "
+            "Gather/speech-PIN audio transcription path."
+        )
+        import whisper
+
+        WHISPER_MODEL = whisper.load_model("tiny")
+    return WHISPER_MODEL
 
 
 def mask_phone_number(phone_number: str | None) -> str:
@@ -348,11 +357,24 @@ def log_startup_configuration():
         conversation_relay_voice_configured=bool(CONVERSATION_RELAY_VOICE),
         caller_identities_count=CALLER_IDENTITY_RECORD_COUNT,
         allowed_callers_count=ALLOWED_CALLER_RECORD_COUNT,
+        local_whisper_loaded=False,
+        local_audio_route_enabled=VOICE_BRIDGE_MODE == "gather",
     )
     if VOICE_BRIDGE_MODE == "gather":
         print(
             "WARNING: gather bridge mode is deprecated fallback compatibility mode; "
-            "conversation_relay is the preferred v2 voice bridge."
+            "conversation_relay is the preferred v2 voice bridge. "
+            "Local Whisper/audio pipeline will be lazy-loaded on first use."
+        )
+    else:
+        print(
+            "INFO: Conversation Relay mode selected; local Whisper/audio pipeline "
+            "is not initialized at startup."
+        )
+    if PIN_MODE == "speech":
+        print(
+            "WARNING: pin_mode=speech is deprecated legacy behavior and will "
+            "lazy-load local Whisper if PIN fallback is used."
         )
     print("TODO: Add Twilio webhook signature validation before production use.")
     print("TODO: Add Conversation Relay websocket validation before production use.")
@@ -365,9 +387,11 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(lifespan=lifespan)
-# Deprecated Gather fallback audio route. The Conversation Relay path does not
-# generate or serve local audio files.
-app.mount("/audio", StaticFiles(directory=AUDIO_DIR), name="audio")
+if VOICE_BRIDGE_MODE == "gather":
+    # Deprecated Gather fallback audio route. The Conversation Relay path does
+    # not generate or serve local audio files.
+    os.makedirs(AUDIO_DIR, exist_ok=True)
+    app.mount("/audio", StaticFiles(directory=AUDIO_DIR), name="audio")
 
 
 # Request models for current Caller Access plus legacy PIN/admin settings.
@@ -1140,6 +1164,8 @@ async def handle_pin_digits(digits: str, call_sid: str | None = None):
 
 
 def download_twilio_recording(recording_url: str, audio_path: str) -> bool:
+    # Deprecated local recording path for Gather command audio and speech PIN.
+    # Conversation Relay does not download caller recordings.
     try:
         audio_url = recording_url + ".mp3"
         print(f"Downloading Twilio recording: {audio_url}")
@@ -2091,7 +2117,7 @@ async def check_pin(
             </Response>
             """)
 
-        result = model.transcribe(
+        result = get_whisper_model().transcribe(
             audio_path,
             no_speech_threshold=0.4,
             condition_on_previous_text=False
@@ -2218,7 +2244,7 @@ async def process_command(
         if os.path.getsize(audio_path) < 2000:
             return polite_hangup("I did not hear anything. Goodbye.")
 
-        result = model.transcribe(
+        result = get_whisper_model().transcribe(
             audio_path,
             no_speech_threshold=0.4,
             condition_on_previous_text=False

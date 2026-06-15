@@ -296,6 +296,8 @@ Caller Access admin UI is now the preferred management model for unified caller 
 
 Cleanup direction: the normal product path is Caller Access UI -> Conversation Relay -> Home Assistant Conversation -> ElevenLabs voice. Gather/audio/Whisper/TTS-file handling remains deprecated fallback only and should be removed in a future cleanup phase after additional stable use.
 
+Cleanup phase 2: Version `1.3.13` is the cleanup baseline after Caller Access UI validation. Version `1.3.14` is the lightweight Conversation Relay runtime baseline. The app no longer imports or loads Whisper at startup for the normal Conversation Relay path. Whisper is lazy-loaded only for deprecated Gather or `pin_mode: speech` transcription. `/audio/*` is mounted only when Gather is explicitly configured. Conversation Relay avoids local audio files and local STT/TTS processing.
+
 Startup configuration logging now runs from a FastAPI startup hook instead of module import so deployment logs clearly show the active authentication and bridge configuration when the app starts.
 
 Caller whitelist parsing now supports the preferred multi-number shape, where one Home Assistant user has a `phone_numbers` list. The legacy single-value `phone_number` shape remains supported and is normalized into the same flat lookup table internally.

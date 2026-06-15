@@ -1,8 +1,8 @@
 # Twilio Development Guide
 
-This guide covers the Twilio side of development for Twilio Voice Assistant. It is focused on building and testing the public webhook, caller whitelist authentication, legacy PIN fallback, deprecated Gather fallback, and preferred Conversation Relay bridge.
+This guide covers the Twilio side of development for Twilio Voice Assistant. It is focused on building and testing the public webhook, Caller Access authentication, DTMF PIN fallback, and preferred Conversation Relay bridge.
 
-For the target v2.0.0 architecture, read `docs/ARCHITECTURE.md` first. The important direction is that caller whitelist authentication is the preferred v2 path, `conversation_relay` is the default and preferred voice bridge mode, and `gather` remains deprecated fallback compatibility mode.
+For the target v2.0.0 architecture, read `docs/ARCHITECTURE.md` first. The important direction is that Caller Access plus `conversation_relay` is the product path. `gather`, `pin_mode: speech`, `allowed_callers`, and the separate legacy PIN map are hidden migration/fallback paths.
 
 ## Auth Direction
 
@@ -188,7 +188,7 @@ Deprecated Gather fallback bridge mode:
 voice_bridge_mode: gather
 ```
 
-Gather is the only bridge mode that uses local Whisper, Home Assistant TTS file generation, and `/audio/*`. Those resources are lazy/conditional in the normal runtime and should not be treated as part of the Conversation Relay path.
+Gather is a hidden legacy fallback and may be removed in a future major cleanup after explicit confirmation. It is the only bridge mode that uses local Whisper, Home Assistant TTS file generation, and `/audio/*`. Those resources are lazy/conditional in the normal runtime and should not be treated as part of the Conversation Relay path.
 
 Preferred Conversation Relay bridge mode:
 
@@ -274,7 +274,11 @@ Twilio call
   -> /start_session or selected bridge mode
 ```
 
-## Gather Mode Build Path
+## Legacy Fallback / Migration
+
+Gather, `pin_mode: speech`, `allowed_callers`, and the separate legacy PIN map are hidden legacy paths. Keep them working for migration compatibility, but do not present them as normal setup. Gather/Whisper/audio-file code should be removed in a future major cleanup only after explicit confirmation.
+
+### Gather Mode Build Path
 
 `gather` is deprecated fallback compatibility mode and should remain the regression baseline while it exists.
 

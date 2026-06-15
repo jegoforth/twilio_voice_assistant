@@ -152,13 +152,19 @@ allowed_callers:
 - Legacy `allowed_callers` and old PIN map records continue to work at runtime during migration.
 - Normal validation should use Caller Access records, not add-on YAML caller records.
 
-## Bridge Modes
+## Normal Test Matrix
 
 - `voice_bridge_mode: conversation_relay` is the default and preferred v2 path.
-- `voice_bridge_mode: gather` is deprecated fallback compatibility mode.
-- Gather remains deprecated fallback compatibility mode.
-- Gather mode still records caller commands, processes them through Home Assistant Conversation, and plays generated `/audio/*` responses after authentication.
-- Conversation Relay is now the preferred voice bridge mode.
+- Default Conversation Relay startup does not load Whisper.
+- Caller Access UI loads.
+- Existing Caller Access records show.
+- Add/delete Caller Access record still works.
+- Allowed number skips PIN.
+- Unlisted number gets DTMF PIN fallback.
+- Wrong PIN is rejected.
+- Correct PIN is accepted.
+- Conversation Relay still uses ElevenLabs Elspeth voice.
+- End-call handling still works.
 - `voice_bridge_mode: conversation_relay` returns Conversation Relay TwiML only after caller whitelist match or successful PIN validation.
 - Known failure to avoid: `block_elevenlabs` is a Home Assistant TTS engine ID and must not be used as Conversation Relay `ttsProvider`.
 - Conversation Relay `ttsProvider` defaults to `ElevenLabs` and is limited to `ElevenLabs`, `Google`, or `Amazon`.
@@ -170,6 +176,14 @@ allowed_callers:
 - Conversation Relay mode does not mount or use `/audio/*`.
 - Whisper is not imported or loaded until a deprecated local recording/transcription path is used.
 - Conversation Relay mode with caller whitelist authentication and ElevenLabs TTS through Twilio Conversation Relay is validated on the active Twilio account.
+
+## Optional Legacy Fallback Tests
+
+- `voice_bridge_mode: gather` is hidden legacy fallback and may be removed later.
+- Gather mode still records caller commands, processes them through Home Assistant Conversation, and plays generated `/audio/*` responses after authentication.
+- `pin_mode: speech` is hidden legacy fallback and may be removed later.
+- Speech PIN fallback lazy-loads Whisper only when used.
+- Explicitly test Gather only when validating migration compatibility.
 
 ## Security TODOs Before Production
 

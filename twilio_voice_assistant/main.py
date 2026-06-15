@@ -362,7 +362,8 @@ def log_startup_configuration():
     )
     if VOICE_BRIDGE_MODE == "gather":
         print(
-            "WARNING: gather bridge mode is deprecated fallback compatibility mode; "
+            "WARNING: voice_bridge_mode=gather is hidden legacy fallback behavior "
+            "and may be removed in a future cleanup; "
             "conversation_relay is the preferred v2 voice bridge. "
             "Local Whisper/audio pipeline will be lazy-loaded on first use."
         )
@@ -373,8 +374,9 @@ def log_startup_configuration():
         )
     if PIN_MODE == "speech":
         print(
-            "WARNING: pin_mode=speech is deprecated legacy behavior and will "
-            "lazy-load local Whisper if PIN fallback is used."
+            "WARNING: pin_mode=speech is hidden legacy fallback behavior and may "
+            "be removed in a future cleanup; it will lazy-load local Whisper if "
+            "PIN fallback is used."
         )
     print("TODO: Add Twilio webhook signature validation before production use.")
     print("TODO: Add Conversation Relay websocket validation before production use.")

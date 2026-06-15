@@ -114,6 +114,24 @@ twilio_auth_token: your_twilio_auth_token
 public_base_url: https://YOUR_PUBLIC_DOMAIN
 ```
 
+Preferred Caller Access admin flow:
+
+- Leave add-on config `callers` and `allowed_callers` empty for normal day-to-day use.
+- Add users through the Caller Access web UI.
+- Caller Access stores admin-managed records in `/share/twilio_voice_assistant/callers.json`.
+- Add-on YAML `callers` remains supported but should be considered advanced/manual configuration.
+- Legacy `allowed_callers` remains migration/fallback only.
+- Legacy separate PIN management is no longer the preferred path.
+
+Validated Caller Access behavior:
+
+- Caller Access web UI is working.
+- Users were removed from add-on config `callers` and `allowed_callers`, then added through the web UI.
+- A call from an allowed number skipped PIN and entered Conversation Relay as expected.
+- A call from an unlisted number fell back to PIN as expected.
+- Correct PIN was accepted and entered Conversation Relay as expected.
+- Conversation Relay remains the preferred/default voice bridge.
+
 Preferred v2 unified caller identity config:
 
 ```yaml

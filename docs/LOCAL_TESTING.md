@@ -4,6 +4,17 @@ Use this checklist for the next v2.0.0 validation pass. Keep test logs free of f
 
 ## Latest Validated Results
 
+- Caller Access web UI is working.
+- All users were removed from `callers` and `allowed_callers` in the add-on configuration tab.
+- Users were added through the Caller Access web UI.
+- A call from an allowed number skipped PIN and entered Conversation Relay as expected.
+- A call from an unlisted number fell back to PIN as expected.
+- Correct PIN was accepted and entered Conversation Relay as expected.
+- Unified Caller Access is now the preferred configuration path.
+- Add-on YAML `callers` remains supported but should be considered advanced/manual configuration.
+- Legacy `allowed_callers` remains migration/fallback only.
+- Legacy separate PIN management is no longer the preferred path.
+- Conversation Relay remains the preferred/default voice bridge.
 - Version `1.3.8` is the stable unified-auth Conversation Relay baseline.
 - Unified `callers` config works through the standard add-on config path.
 - Known caller phone numbers in `callers` skip PIN and enter Conversation Relay.

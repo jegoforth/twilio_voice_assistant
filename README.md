@@ -141,6 +141,8 @@ From the admin page:
 
 Caller Access stores `ha_user_id` as the stable key and resolves the display name from Home Assistant. Existing records show masked phone numbers and only `PIN set` or `No PIN`; saved PIN values are not displayed. Add-on config `callers` records remain supported during migration and appear as read-only config records in the UI. Caller Access is the preferred editable source, so avoid managing the same caller in both places long term. Legacy PIN management is collapsed and kept only for migration compatibility. Assistant settings and admin-managed caller access are stored in `/share/twilio_voice_assistant` so they survive add-on rebuilds.
 
+Validated path: leave add-on config `callers` and `allowed_callers` empty for normal use, add users through Caller Access, and use Conversation Relay as the preferred/default bridge. Add-on YAML `callers` remains supported for advanced/manual configuration. Legacy `allowed_callers` and separate PIN management remain migration/fallback only.
+
 ## Test
 
 1. Call your Twilio phone number.

@@ -251,7 +251,7 @@ The preferred v2 authentication path is caller whitelist matching, mapped to Hom
 
 ```text
 Twilio From number
-  -> normalize/match against callers / allowed_callers
+  -> normalize/match against Caller Access records
   -> mapped Home Assistant user
   -> Conversation Relay
 ```
@@ -284,19 +284,17 @@ callers:
 
 Implementation note:
 
-The implementation reads Caller Access records, advanced/manual `callers`, and legacy `allowed_callers`. Entries are normalized into the same flat phone-number lookup, logs use masked caller context, and Conversation Relay starts only after a whitelist match or successful PIN fallback.
+The implementation reads Caller Access records and advanced/import-only `callers`. Entries are normalized into the same flat phone-number lookup, logs use masked caller context, and Conversation Relay starts only after a whitelist match or successful PIN fallback.
 
 `ha_user_id` is the required stable identity key for canonical `callers`. Configured `name` is optional and retained only as a fallback label. When the app matches a known caller or accepts a unified caller PIN, it resolves the Home Assistant user display name from `ha_user_id`; if lookup fails, it falls back to configured `name`, then `ha_user_id`.
 
-Schema note: legacy `allowed_callers[*].name` is also optional so Home Assistant can save existing options during the migration from `allowed_callers` to canonical `callers`.
-
-Caller Access admin UI is now the preferred management model for unified caller identity. It writes admin-managed `callers` records to `/share/twilio_voice_assistant/callers.json`, stores `ha_user_id` as the stable key, resolves the Home Assistant display name dynamically, masks phone numbers in the UI, and treats PIN values as write-only. Add-on config `callers` are still loaded and shown as read-only config-sourced records, while legacy `allowed_callers` and the old PIN map remain runtime migration/fallback paths. During migration, callers may exist in both add-on config and Caller Access storage; the long-term direction is to use Caller Access as the editable source and stop editing caller identity in two places.
+Caller Access admin UI is now the preferred management model for unified caller identity. It writes admin-managed caller records to `/share/twilio_voice_assistant/callers.json`, stores `ha_user_id` as the stable key, resolves the Home Assistant display name dynamically, masks phone numbers in the UI, and treats PIN values as write-only. Add-on config `callers` are still loaded and shown as read-only config-sourced records for advanced/import-only use. During migration, callers may exist in both add-on config and Caller Access storage; the long-term direction is to use Caller Access as the editable source and avoid editing caller identity in two places.
 
 Cleanup direction: the normal product path is Caller Access UI -> Conversation Relay -> Home Assistant Conversation -> ElevenLabs voice. Gather/audio/Whisper/TTS-file handling was removed in version `1.4.0` after additional stable use.
 
 Cleanup phase 2: Version `1.3.13` is the cleanup baseline after Caller Access UI validation. Version `1.3.14` is the lightweight Conversation Relay runtime baseline. The app no longer imports or loads Whisper at startup for the normal Conversation Relay path.
 
-Cleanup phase 3 decision: Conversation Relay plus Caller Access is the product path. Gather and `pin_mode: speech` were hidden legacy fallbacks. `allowed_callers` and the separate legacy PIN map are migration/fallback only.
+Cleanup phase 3 decision: Conversation Relay plus Caller Access is the product path. Gather and `pin_mode: speech` were hidden legacy fallbacks before they were removed.
 
 ## Decision 018: Remove deprecated Gather, speech PIN, Whisper, and local audio files
 
@@ -319,9 +317,7 @@ Removed runtime paths:
 Kept runtime paths:
 
 - Caller Access UI and admin-managed `callers` records.
-- Advanced/manual add-on config `callers`.
-- Legacy `allowed_callers` parser for migration.
-- Legacy separate PIN map loading for migration and fallback.
+- Advanced/import-only add-on config `callers`.
 - DTMF PIN fallback.
 - Conversation Relay websocket text bridge.
 - Home Assistant Conversation as the assistant brain.
@@ -339,13 +335,13 @@ Caller whitelist parsing now supports the preferred multi-number shape, where on
 
 Caller whitelist management is no longer config-only. The previous broken inline allowed-caller form was not reintroduced; instead, the admin page now has a focused Caller Access section backed by `/share/twilio_voice_assistant/callers.json`. Future Home Assistant-native management can still move into a HACS options flow later, but the add-on admin page now has a safe migration UI for day-to-day caller access.
 
-The earlier issue was add-on schema/config visibility, not runtime caller matching. The active add-on manifest is `twilio_voice_assistant/config.json`, and `callers` plus legacy `allowed_callers` are present in that schema. The Caller Access UI avoids writing Home Assistant add-on options directly; it writes admin-managed caller records to `/share` and merges them with configured caller records at runtime. This intentionally creates a temporary two-source migration model; after recreating records in Caller Access, remove duplicates from add-on config to avoid confusion.
+The earlier issue was add-on schema/config visibility, not runtime caller matching. The active add-on manifest is `twilio_voice_assistant/config.json`. The Caller Access UI avoids writing Home Assistant add-on options directly; it writes admin-managed caller records to `/share` and merges them with configured `callers` records at runtime. This intentionally keeps add-on config `callers` as an advanced/import-only source; after recreating records in Caller Access, remove duplicates from add-on config to avoid confusion.
 
 Validation note:
 
 The repository-installed add-on starts successfully. The admin UI was restored and is functional again. DTMF PIN authentication works. Caller configuration was tested successfully through the standard add-on config path. A known caller matched caller identity config, skipped PIN, and entered the conversation flow. An unlisted caller with PIN fallback enabled was prompted for PIN; one wrong PIN was rejected as expected, and one correct PIN was accepted and entered conversation as expected.
 
-Caller Access validation: Caller Access web UI is working. All users were removed from `callers` and `allowed_callers` in the add-on configuration tab, then users were added through the web UI. A call from an allowed number skipped PIN and entered Conversation Relay as expected. A call from an unlisted number fell back to PIN as expected. Correct PIN was accepted and entered Conversation Relay as expected. Unified Caller Access is now the preferred configuration path. Add-on YAML `callers` remains supported but should be considered advanced/manual configuration. Legacy `allowed_callers` remains migration/fallback only. Legacy separate PIN management is no longer the preferred path. Conversation Relay remains the preferred/default voice bridge.
+Caller Access validation: Caller Access web UI is working. Users were added through the web UI. A call from an allowed number skipped PIN and entered Conversation Relay as expected. A call from an unlisted number fell back to PIN as expected. Correct PIN was accepted and entered Conversation Relay as expected. Unified Caller Access is now the preferred configuration path. Add-on YAML `callers` remains supported but should be considered advanced/import-only configuration. Conversation Relay remains the preferred/default voice bridge.
 
 Conversation Relay mode was validated successfully. Conversation Relay uses ElevenLabs successfully with the confirmed Elspeth ElevenLabs voice ID `h8eW5xfRUGVJrZhAFxqK`. Conversation Relay sends caller transcript text to Home Assistant Conversation, Home Assistant Conversation returns a response, and the assistant verified something in the house correctly. The call ended correctly through the end-call handling. Conversation Relay latency is much faster than the previous Gather/TTS/audio-file path.
 
@@ -372,7 +368,7 @@ The attempted inline allowed-caller management work was reverted/stopped. Caller
 
 The next validation focus should be interruption/barge-in behavior and broader production hardening.
 
-HA user IDs in `callers` or legacy `allowed_callers` should not include angle brackets. Use `5e738...`, not `<5e738...>`.
+HA user IDs in `callers` should not include angle brackets. Use `5e738...`, not `<5e738...>`.
 
 Conversation Relay TTS settings are separate from Home Assistant TTS settings. Home Assistant TTS engine IDs such as `block_elevenlabs` must not be used as Conversation Relay `ttsProvider` values. The runtime now limits Conversation Relay providers to `ElevenLabs`, `Google`, or `Amazon`, falls back to `ElevenLabs` for invalid values, and omits `voice` when `conversation_relay_voice` is blank or `default`. For the validated v2 path, Conversation Relay `ttsProvider` should be `ElevenLabs` and `voice` should be `h8eW5xfRUGVJrZhAFxqK`.
 
@@ -402,6 +398,41 @@ The session token is stateless and HMAC-signed with a secret derived from `TWILI
 Local testing:
 
 Controlled unsigned local tests can temporarily set `allow_unsigned_twilio_requests_for_dev: true`. Public or production-like endpoints should never enable this bypass.
+
+## Decision 020: Make Caller Access the single caller identity and PIN source
+
+**Status:** Accepted
+
+Version `1.4.3` removes the remaining legacy caller identity and PIN migration paths.
+
+Removed paths:
+
+- `allowed_callers` add-on option and schema entries.
+- Runtime parsing/loading of `allowed_callers`.
+- Separate legacy PIN-map storage and migration loading.
+- Legacy PIN Management UI.
+- `/admin/api/pins` routes.
+
+Kept paths:
+
+- Caller Access UI.
+- Admin-managed Caller Access records in `/share/twilio_voice_assistant/callers.json`.
+- Optional DTMF fallback PIN stored on Caller Access records.
+- Advanced/import-only add-on config `callers`, shown read-only in the admin UI when present.
+- `auth_mode` and `unknown_caller_policy`.
+- Twilio signature validation, signed `/start_session`, and Conversation Relay websocket session validation.
+
+Rationale:
+
+Caller Access has been validated as the working admin model. Keeping `allowed_callers`, the old PIN map, and the legacy PIN UI created multiple places to manage the same identity and fallback behavior. Removing those paths makes the normal product path easier to explain and harder to misconfigure.
+
+Consequences:
+
+- Normal setup should leave caller identity out of add-on YAML and use Caller Access.
+- Fallback PINs are write-only in the Caller Access UI and are not displayed after save.
+- Unknown caller PIN fallback validates against PINs on Caller Access records.
+- If no Caller Access PINs are configured, unknown caller PIN fallback fails safely.
+- Existing deployments using `allowed_callers` or the separate old PIN map need to recreate records in Caller Access or advanced/import-only `callers`.
 
 ## Decision 017: Treat ARCHITECTURE.md as the stable guardrail document
 
@@ -448,4 +479,4 @@ Consequences:
 10. Structure the repository as a valid Home Assistant add-on repository. **Done.**
 11. Move configuration and diagnostics into a future HACS integration. **Deferred.**
 12. Keep the current add-on as the bridge runtime until an integration-only deployment is proven safe. **Current approach.**
-13. Migrate caller identity toward unified `callers` config while preserving legacy `allowed_callers` and PIN UI compatibility. **Started.**
+13. Migrate caller identity to Caller Access and remove legacy `allowed_callers` plus separate PIN UI compatibility. **Done in `1.4.3`.**

@@ -8,6 +8,8 @@ The current product path is Conversation Relay only. The v2.0.0 target architect
 
 Version `1.4.2` makes secure Conversation Relay the only normal product path: Twilio HTTP webhook signature validation is always on unless the explicit development-only unsigned request bypass is enabled, `/start_session` requires a short-lived signed session token, and the Conversation Relay websocket setup validates the same session token before trusting user metadata.
 
+Version `1.4.3` makes Caller Access the single source of truth for caller identity and fallback PINs. Legacy `allowed_callers`, separate PIN-map storage, the old PIN admin UI, and `/admin/api/pins` have been removed.
+
 ## Requirements
 
 Before installing, make sure you have:
@@ -104,7 +106,7 @@ Open the add-on configuration page in Home Assistant and set:
   - `caller_whitelist`: Match Twilio `From` against configured callers.
   - `caller_whitelist_or_pin`: Known callers skip PIN; unknown callers can use PIN fallback.
 - `unknown_caller_policy`: Defaults to `reject`. Use `pin_fallback` to allow unknown callers to try PIN auth.
-- `callers`: Advanced/manual YAML form of the preferred identity model. Normal setup should use Caller Access in the admin page, which stores the same model in `/share/twilio_voice_assistant/callers.json`.
+- `callers`: Advanced/import-only YAML form of the Caller Access identity model. Normal setup should leave this empty and use Caller Access in the admin page, which stores records in `/share/twilio_voice_assistant/callers.json`.
 - `conversation_relay_tts_provider`: Defaults to `ElevenLabs`.
 - `conversation_relay_voice`: Optional Conversation Relay voice identifier.
 - `conversation_relay_transcription_provider`: Defaults to `Deepgram`.
@@ -128,9 +130,9 @@ From the admin page:
    - Optionally enter a 4 digit fallback PIN.
    - Click **Add Caller Access**.
 
-Caller Access stores `ha_user_id` as the stable key and resolves the display name from Home Assistant. Existing records show masked phone numbers and only `PIN set` or `No PIN`; saved PIN values are not displayed. Add-on config `callers` records remain supported during migration and appear as read-only config records in the UI. Caller Access is the preferred editable source, so avoid managing the same caller in both places long term. Legacy PIN management is collapsed and kept only for migration compatibility. Assistant settings and admin-managed caller access are stored in `/share/twilio_voice_assistant` so they survive add-on rebuilds.
+Caller Access stores `ha_user_id` as the stable key and resolves the display name from Home Assistant. Existing records show masked phone numbers and only `PIN set` or `No PIN`; saved PIN values are not displayed. Add-on config `callers` records remain supported as advanced/import-only records and appear as read-only config records in the UI. Caller Access is the normal editable source. Assistant settings and admin-managed caller access are stored in `/share/twilio_voice_assistant` so they survive add-on rebuilds.
 
-Validated path: leave add-on config `callers` and `allowed_callers` empty for normal use, add users through Caller Access, and use Conversation Relay as the preferred/default bridge. Add-on YAML `callers` remains supported for advanced/manual configuration. Legacy `allowed_callers` and separate PIN management remain migration/fallback only.
+Validated path: leave add-on config `callers` empty for normal use, add users and optional fallback PINs through Caller Access, and use Conversation Relay as the only voice bridge. Add-on YAML `callers` remains supported for advanced/import-only configuration.
 
 ## Removed Legacy Paths
 
@@ -142,7 +144,12 @@ Version `1.4.0` removes the old local audio pipeline:
 - Home Assistant TTS-to-file response generation.
 - Public `/process_command` and `/audio/*` routes.
 
-Legacy `allowed_callers` parsing and separate PIN map loading remain only for migration/fallback configuration. Use Caller Access for normal setup.
+Version `1.4.3` also removes the legacy caller identity and PIN management paths:
+
+- `allowed_callers` add-on options and runtime parsing.
+- Separate legacy PIN-map storage.
+- Legacy PIN Management UI.
+- `/admin/api/pins` routes.
 
 ## Test
 

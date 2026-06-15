@@ -31,7 +31,6 @@ DEBUG = os.getenv("DEBUG", "false").lower() == "true"
 AUTH_MODE = os.getenv("AUTH_MODE", "pin").strip().lower()
 UNKNOWN_CALLER_POLICY = os.getenv("UNKNOWN_CALLER_POLICY", "reject").strip().lower()
 CALLERS_JSON = os.getenv("CALLERS_JSON", "[]")
-ALLOWED_CALLERS_JSON = os.getenv("ALLOWED_CALLERS_JSON", "[]")
 CONVERSATION_RELAY_TTS_PROVIDER = os.getenv(
     "CONVERSATION_RELAY_TTS_PROVIDER", "ElevenLabs"
 ).strip()
@@ -103,10 +102,6 @@ if missing_vars:
 # Current Caller Access storage. This is the preferred admin-managed identity path.
 SETTINGS_FILE = f"{DATA_DIR}/settings.json"
 CALLERS_FILE = f"{DATA_DIR}/callers.json"
-
-# Legacy PIN map storage remains for migration and unknown-caller fallback.
-PIN_MAP_FILE = f"{DATA_DIR}/pin_map.json"
-
 
 def log_timing(event: str, **fields):
     """Emit structured timing logs without secrets, PINs, or transcript text."""
@@ -380,25 +375,15 @@ def load_caller_identity_records():
     return load_config_caller_identity_records() + load_admin_caller_identity_records()
 
 
-def load_legacy_allowed_caller_records():
-    # Legacy add-on YAML shape. Keep parsing for migration compatibility only.
-    return load_json_list(ALLOWED_CALLERS_JSON, "allowed_callers")
-
-
-def load_allowed_callers():
-    """Build the effective caller whitelist from canonical and legacy config."""
+def load_caller_access_lookup():
+    """Build the effective caller lookup from Caller Access and import records."""
     caller_records = load_caller_identity_records()
-    legacy_records = load_legacy_allowed_caller_records()
     callers, caller_count = normalize_callers_for_lookup(caller_records, "callers")
-    legacy_callers, legacy_count = normalize_callers_for_lookup(
-        legacy_records,
-        "allowed_callers",
-    )
-    return callers + legacy_callers, caller_count + legacy_count
+    return callers, caller_count
 
 
-def load_caller_identity_pin_map():
-    pin_map = {}
+def load_caller_access_pins():
+    pin_lookup = {}
     for caller in load_caller_identity_records():
         if not isinstance(caller, dict):
             continue
@@ -412,32 +397,23 @@ def load_caller_identity_pin_map():
         if not ha_user_id:
             continue
         caller_name = (caller.get("name") or "").strip()
-        pin_map[pin] = {
+        pin_lookup[pin] = {
             "user_id": ha_user_id,
             "user_name": caller_name,
         }
-    return pin_map
+    return pin_lookup
 
 
-def load_effective_pin_map():
-    """Use legacy/admin PINs plus canonical caller PINs during migration."""
-    pin_map = load_pin_map()
-    pin_map.update(load_caller_identity_pin_map())
-    return pin_map
+CALLER_ACCESS_LOOKUP, CALLER_ACCESS_RECORD_COUNT = load_caller_access_lookup()
 
 
-ALLOWED_CALLERS, ALLOWED_CALLER_RECORD_COUNT = load_allowed_callers()
-CALLER_IDENTITY_RECORD_COUNT = len(load_caller_identity_records())
-
-
-def find_allowed_caller(from_number: str | None):
-    global ALLOWED_CALLERS, ALLOWED_CALLER_RECORD_COUNT, CALLER_IDENTITY_RECORD_COUNT
-    ALLOWED_CALLERS, ALLOWED_CALLER_RECORD_COUNT = load_allowed_callers()
-    CALLER_IDENTITY_RECORD_COUNT = len(load_caller_identity_records())
+def find_caller_access_record(from_number: str | None):
+    global CALLER_ACCESS_LOOKUP, CALLER_ACCESS_RECORD_COUNT
+    CALLER_ACCESS_LOOKUP, CALLER_ACCESS_RECORD_COUNT = load_caller_access_lookup()
     normalized_from = normalize_phone_number(from_number)
     if not normalized_from:
         return None, normalized_from
-    for caller in ALLOWED_CALLERS:
+    for caller in CALLER_ACCESS_LOOKUP:
         if caller["phone_number"] == normalized_from:
             return caller, normalized_from
     return None, normalized_from
@@ -456,8 +432,8 @@ def log_startup_configuration():
         ),
         conversation_relay_language=CONVERSATION_RELAY_LANGUAGE,
         conversation_relay_voice_configured=bool(CONVERSATION_RELAY_VOICE),
-        caller_identities_count=CALLER_IDENTITY_RECORD_COUNT,
-        allowed_callers_count=ALLOWED_CALLER_RECORD_COUNT,
+        caller_identity_source="caller_access",
+        caller_access_records_count=CALLER_ACCESS_RECORD_COUNT,
         local_audio_pipeline="removed",
         twilio_signature_validation_enabled=(
             not ALLOW_UNSIGNED_TWILIO_REQUESTS_FOR_DEV
@@ -487,13 +463,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(lifespan=lifespan)
 
 
-# Request models for current Caller Access plus legacy PIN/admin settings.
-class PinRequest(BaseModel):
-    pin: str
-    user_id: str
-    user_name: str | None = None
-
-
+# Request models for Caller Access and admin settings.
 class CallerAccessRequest(BaseModel):
     ha_user_id: str
     phone_numbers: list[str]
@@ -514,18 +484,6 @@ def require_ingress(request: Request):
     if client_host == INGRESS_PROXY_IP and has_ingress_header:
         return
     raise HTTPException(status_code=404)
-
-
-def load_pin_map():
-    """Load PIN map from JSON file"""
-    try:
-        migrate_legacy_file("/share/pin_map.json", PIN_MAP_FILE)
-        if os.path.exists(PIN_MAP_FILE):
-            with open(PIN_MAP_FILE, "r") as f:
-                return json.load(f)
-    except Exception as e:
-        print(f"WARNING: Could not load PIN map from file: {e}")
-    return {}
 
 
 def load_settings():
@@ -568,18 +526,6 @@ def save_settings(settings):
         return True
     except Exception as e:
         print(f"ERROR: Could not save settings: {e}")
-        return False
-
-
-def save_pin_map(pin_map):
-    """Save PIN map to JSON file"""
-    try:
-        os.makedirs("/share", exist_ok=True)
-        with open(PIN_MAP_FILE, "w") as f:
-            json.dump(pin_map, f, indent=2)
-        return True
-    except Exception as e:
-        print(f"ERROR: Could not save PIN map: {e}")
         return False
 
 
@@ -738,14 +684,14 @@ async def fetch_conversation_agents():
     return agents, None
 
 
-def pin_entry_user_id(pin_entry):
+def caller_access_pin_user_id(pin_entry):
     if isinstance(pin_entry, dict):
         return pin_entry.get("user_id")
     return pin_entry
 
 
-def pin_entry_user_name(pin_entry, user_map):
-    user_id = pin_entry_user_id(pin_entry)
+def caller_access_pin_user_name(pin_entry, user_map):
+    user_id = caller_access_pin_user_id(pin_entry)
     resolved_user_name = user_map.get(user_id)
     if resolved_user_name:
         return resolved_user_name
@@ -771,10 +717,8 @@ async def resolve_ha_user_display_name(
     return user_map.get(user_id) or configured_name or user_id
 
 
-PIN_MAP = load_pin_map()
-
 if DEBUG:
-    print(f"Loaded PIN_MAP with {len(PIN_MAP)} entries")
+    print(f"Loaded Caller Access PIN entries: {len(load_caller_access_pins())}")
     print(f"Loaded settings: {load_settings()}")
 
 
@@ -1020,22 +964,21 @@ async def send_to_home_assistant_conversation(
 
 
 async def handle_pin_digits(digits: str, call_sid: str | None = None):
-    global PIN_MAP
-    PIN_MAP = load_effective_pin_map()
     digits = normalize_digits(digits)
+    pin_lookup = load_caller_access_pins()
 
     if DEBUG:
         print(f"PIN received with {len(digits)} digits")
 
-    pin_entry = PIN_MAP.get(digits)
+    pin_entry = pin_lookup.get(digits)
     if pin_entry:
         users, error = await fetch_ha_users()
         if error:
             print(f"Could not resolve user name after PIN auth: {error}")
 
         user_map = {user["id"]: user["name"] for user in users}
-        user_id = pin_entry_user_id(pin_entry)
-        user_name = pin_entry_user_name(pin_entry, user_map)
+        user_id = caller_access_pin_user_id(pin_entry)
+        user_name = caller_access_pin_user_name(pin_entry, user_map)
         session_token = create_session_token(user_id, user_name, call_sid)
         encoded_session_token = quote(session_token)
         log_timing(
@@ -1260,23 +1203,6 @@ async def admin_ui(request: Request):
                 </div>
             </div>
 
-            <details class="form-section">
-                <summary>Legacy PIN Management</summary>
-                <p class="muted" style="margin-bottom: 15px;">Migration fallback only. Prefer Caller Access for new entries.</p>
-                <div class="form-group">
-                    <label for="pin">PIN (4 digits):</label>
-                    <input type="text" id="pin" placeholder="1234" maxlength="4" pattern="[0-9]*">
-                </div>
-                <div class="form-group">
-                    <label for="user">Home Assistant User:</label>
-                    <select id="user">
-                        <option value="">-- Loading users --</option>
-                    </select>
-                </div>
-                <button onclick="addPin()">Add PIN</button>
-                <div class="status" id="status"></div>
-                <p class="muted" style="margin-top: 15px;">Saved legacy PIN values are not displayed. Use Caller Access for new or editable access records.</p>
-            </details>
         </div>
 
         <script>
@@ -1349,30 +1275,20 @@ async def admin_ui(request: Request):
                     const res = await fetch(`${ADMIN_API_BASE}/users`);
                     const data = await res.json();
                     haUsers = data.users || [];
-                    const selects = [
-                        document.getElementById('user'),
-                        document.getElementById('callerUser')
-                    ];
-                    selects.forEach(select => {
-                        select.innerHTML = '<option value="">-- Select user --</option>';
-                    });
+                    const select = document.getElementById('callerUser');
+                    select.innerHTML = '<option value="">-- Select user --</option>';
                     if (data.users && data.users.length > 0) {
                         data.users.forEach(user => {
-                            selects.forEach(select => {
-                                const opt = document.createElement('option');
-                                opt.value = user.id;
-                                opt.textContent = user.name;
-                                select.appendChild(opt);
-                            });
+                            const opt = document.createElement('option');
+                            opt.value = user.id;
+                            opt.textContent = user.name;
+                            select.appendChild(opt);
                         });
                     } else {
-                        selects.forEach(select => {
-                            select.innerHTML = '<option value="">No users found</option>';
-                        });
+                        select.innerHTML = '<option value="">No users found</option>';
                     }
                 } catch (err) {
                     console.error('Error loading users:', err);
-                    document.getElementById('user').innerHTML = '<option value="">Error loading users</option>';
                     document.getElementById('callerUser').innerHTML = '<option value="">Error loading users</option>';
                 }
             }
@@ -1496,108 +1412,6 @@ async def admin_ui(request: Request):
                 }
             }
 
-            async function loadPins() {
-                try {
-                    const res = await fetch(`${ADMIN_API_BASE}/pins`);
-                    const data = await res.json();
-                    const list = document.getElementById('pinsList');
-                    
-                    if (!data.pins || Object.keys(data.pins).length === 0) {
-                        list.innerHTML = '<p style="color: #999; text-align: center; padding: 20px;">No PINs configured yet</p>';
-                        return;
-                    }
-
-                    list.innerHTML = '';
-                    for (const [pin, pinEntry] of Object.entries(data.pins)) {
-                        const userId = typeof pinEntry === 'object' ? pinEntry.user_id : pinEntry;
-                        const savedName = typeof pinEntry === 'object' ? pinEntry.user_name : null;
-                        const userName = savedName || data.userMap?.[userId] || userId;
-                        const item = document.createElement('div');
-                        item.className = 'pin-item';
-                        const info = document.createElement('div');
-                        info.className = 'pin-info';
-                        const title = document.createElement('strong');
-                        title.textContent = 'PIN set';
-                        info.appendChild(title);
-                        const user = document.createElement('div');
-                        user.className = 'pin-user';
-                        user.textContent = userName;
-                        info.appendChild(user);
-                        item.appendChild(info);
-                        const button = document.createElement('button');
-                        button.className = 'delete';
-                        button.textContent = 'Delete';
-                        button.addEventListener('click', () => deletePin(pin));
-                        item.appendChild(button);
-                        list.appendChild(item);
-                    }
-                } catch (err) {
-                    console.error('Error loading pins:', err);
-                    document.getElementById('pinsList').innerHTML = '<p style="color: #999; text-align: center;">Error loading PINs</p>';
-                }
-            }
-
-            async function addPin() {
-                const pin = document.getElementById('pin').value.trim();
-                const userId = document.getElementById('user').value;
-                const status = document.getElementById('status');
-                status.style.display = '';
-
-                if (!pin || !userId) {
-                    status.className = 'status error';
-                    status.textContent = 'Please enter PIN and select a user';
-                    return;
-                }
-
-                if (!/^[0-9]{4}$/.test(pin)) {
-                    status.className = 'status error';
-                    status.textContent = 'PIN must be exactly 4 digits';
-                    return;
-                }
-
-                try {
-                    const select = document.getElementById('user');
-                    const userName = select.options[select.selectedIndex]?.textContent || userId;
-                    const res = await fetch(`${ADMIN_API_BASE}/pins`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ pin, user_id: userId, user_name: userName })
-                    });
-
-                    if (res.ok) {
-                        status.className = 'status success';
-                        status.textContent = 'PIN added successfully';
-                        document.getElementById('pin').value = '';
-                        document.getElementById('user').value = '';
-                        setTimeout(() => { status.style.display = 'none'; }, 3000);
-                    } else {
-                        const error = await res.text();
-                        status.className = 'status error';
-                        status.textContent = 'Error: ' + error;
-                    }
-                } catch (err) {
-                    status.className = 'status error';
-                    status.textContent = 'Error: ' + err.message;
-                }
-            }
-
-            async function deletePin(pin) {
-                if (!confirm('Delete this legacy PIN?')) return;
-                
-                try {
-                    const res = await fetch(`${ADMIN_API_BASE}/pins/${pin}`, { method: 'DELETE' });
-                    if (res.ok) {
-                        loadPins();
-                    }
-                } catch (err) {
-                    alert('Error deleting PIN: ' + err.message);
-                }
-            }
-
-            document.getElementById('pin').addEventListener('keypress', (e) => {
-                if (e.key === 'Enter') addPin();
-            });
-
             loadSettings();
             loadUsers();
             loadCallerAccess();
@@ -1654,66 +1468,6 @@ async def get_conversation_agents(request: Request):
     if error:
         response["error"] = error
     return response
-
-
-@app.get("/admin/api/pins")
-async def get_pins(request: Request):
-    """Get current PIN mappings"""
-    require_ingress(request)
-    global PIN_MAP
-    PIN_MAP = load_pin_map()
-
-    users, error = await fetch_ha_users()
-    user_map = {user["id"]: user["name"] for user in users}
-    if error:
-        print(f"Could not fetch user names for PIN list: {error}")
-
-    return {"pins": PIN_MAP, "userMap": user_map}
-
-
-@app.post("/admin/api/pins")
-async def add_pin(pin_request: PinRequest, request: Request):
-    """Add a PIN mapping"""
-    require_ingress(request)
-    global PIN_MAP
-
-    pin = pin_request.pin
-    user_id = pin_request.user_id
-
-    pin = pin.strip()
-    if not pin or not pin.isdigit() or len(pin) != 4:
-        return JSONResponse({"error": "PIN must be 4 digits"}, status_code=400)
-
-    if not user_id:
-        return JSONResponse({"error": "User ID required"}, status_code=400)
-
-    PIN_MAP[pin] = {
-        "user_id": user_id,
-        "user_name": pin_request.user_name or user_id,
-    }
-    if save_pin_map(PIN_MAP):
-        return {
-            "success": True,
-            "pin": pin,
-            "user_id": user_id,
-            "user_name": pin_request.user_name,
-        }
-    else:
-        return JSONResponse({"error": "Could not save PIN"}, status_code=500)
-
-
-@app.delete("/admin/api/pins/{pin}")
-async def delete_pin(pin: str, request: Request):
-    """Delete a PIN mapping"""
-    require_ingress(request)
-    global PIN_MAP
-    
-    if pin in PIN_MAP:
-        del PIN_MAP[pin]
-        if save_pin_map(PIN_MAP):
-            return {"success": True}
-    
-    return JSONResponse({"error": "PIN not found"}, status_code=404)
 
 
 @app.get("/admin/api/caller-access")
@@ -1783,7 +1537,7 @@ async def incoming_call(
         route="/incoming_call",
         call_sid=CallSid,
     )
-    caller, normalized_from = find_allowed_caller(From)
+    caller, normalized_from = find_caller_access_record(From)
     masked_from = mask_phone_number(normalized_from or From)
     log_timing(
         "inbound_call_received",
@@ -1834,9 +1588,6 @@ async def check_pin(
     CallSid: str | None = Form(None),
     Digits: str | None = Form(None),
 ):
-    global PIN_MAP
-    PIN_MAP = load_effective_pin_map()
-    
     try:
         await validate_twilio_http_request(
             request,

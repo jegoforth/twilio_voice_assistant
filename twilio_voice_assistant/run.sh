@@ -45,15 +45,6 @@ if isinstance(callers, str):
 if not isinstance(callers, list):
     callers = []
 os.environ['CALLERS_JSON'] = json.dumps(callers)
-allowed_callers = config.get('allowed_callers', [])
-if isinstance(allowed_callers, str):
-    try:
-        allowed_callers = json.loads(allowed_callers)
-    except:
-        allowed_callers = []
-if not isinstance(allowed_callers, list):
-    allowed_callers = []
-os.environ['ALLOWED_CALLERS_JSON'] = json.dumps(allowed_callers)
 os.environ['CONVERSATION_RELAY_TTS_PROVIDER'] = str(
     config.get('conversation_relay_tts_provider', 'ElevenLabs')
 ).strip()
@@ -70,15 +61,6 @@ os.environ['ALLOW_UNSIGNED_TWILIO_REQUESTS_FOR_DEV'] = str(
     config.get('allow_unsigned_twilio_requests_for_dev', False)
 ).strip().lower()
 
-# Handle pin_map - could be dict or JSON string
-pin_map = config.get('pin_map', {})
-if isinstance(pin_map, str):
-    try:
-        pin_map = json.loads(pin_map)
-    except:
-        pin_map = {}
-        
-os.environ['PIN_MAP_JSON'] = json.dumps(pin_map)
 os.environ['DEBUG'] = str(config.get('debug', False)).lower()
 
 port = config.get('port', 8000)

@@ -1,6 +1,6 @@
 {
   "name": "Twilio Voice Assistant",
-  "version": "1.4.2",
+  "version": "1.4.3",
   "slug": "twilio_voice_assistant",
   "description": "Twilio Conversation Relay webhook service with Caller Access authentication, DTMF PIN fallback, ElevenLabs voice support, and Home Assistant Conversation integration.",
   "arch": ["amd64", "aarch64"],
@@ -24,7 +24,6 @@
     "auth_mode": "pin",
     "unknown_caller_policy": "reject",
     "callers": [],
-    "allowed_callers": [],
     "conversation_relay_tts_provider": "ElevenLabs",
     "conversation_relay_voice": "",
     "conversation_relay_transcription_provider": "Deepgram",
@@ -45,14 +44,6 @@
         "phone_numbers": ["str?"],
         "ha_user_id": "str",
         "pin": "str?"
-      }
-    ],
-    "allowed_callers": [
-      {
-        "name": "str?",
-        "phone_number": "str?",
-        "phone_numbers": ["str?"],
-        "ha_user_id": "str"
       }
     ],
     "conversation_relay_tts_provider": "list(ElevenLabs|Google|Amazon)?",

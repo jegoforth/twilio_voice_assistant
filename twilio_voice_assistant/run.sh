@@ -54,9 +54,6 @@ if isinstance(allowed_callers, str):
 if not isinstance(allowed_callers, list):
     allowed_callers = []
 os.environ['ALLOWED_CALLERS_JSON'] = json.dumps(allowed_callers)
-os.environ['VOICE_BRIDGE_MODE'] = str(
-    config.get('voice_bridge_mode', 'conversation_relay')
-).strip().lower()
 os.environ['CONVERSATION_RELAY_TTS_PROVIDER'] = str(
     config.get('conversation_relay_tts_provider', 'ElevenLabs')
 ).strip()
@@ -69,7 +66,6 @@ os.environ['CONVERSATION_RELAY_TRANSCRIPTION_PROVIDER'] = str(
 os.environ['CONVERSATION_RELAY_LANGUAGE'] = str(
     config.get('conversation_relay_language', 'en-US')
 ).strip()
-os.environ['PIN_MODE'] = str(config.get('pin_mode', 'dtmf')).strip().lower()
 
 # Handle pin_map - could be dict or JSON string
 pin_map = config.get('pin_map', {})

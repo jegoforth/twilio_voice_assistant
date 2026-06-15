@@ -4,12 +4,16 @@ Use this checklist for the next v2.0.0 validation pass. Keep test logs free of f
 
 ## Latest Validated Results
 
+- Version `1.4.0` is the Conversation Relay-only baseline.
+- Gather, speech PIN, local Whisper, local generated TTS audio files, `/process_command`, and `/audio/*` have been removed from the runtime.
+- Normal public routes are `/incoming_call`, `/check_pin`, `/start_session`, `/conversation_relay`, and `/conversation_relay/status`.
+- Caller Access, DTMF PIN fallback, Conversation Relay, Home Assistant Conversation, and ElevenLabs through Twilio Conversation Relay remain the supported product path.
 - Version `1.3.13` was the cleanup baseline after Caller Access UI validation.
 - Version `1.3.14` is the lightweight Conversation Relay runtime baseline.
 - Conversation Relay no longer loads Whisper at startup.
-- Whisper is lazy-loaded only for deprecated Gather or `pin_mode: speech` paths.
+- Whisper has now been removed from the add-on dependencies.
 - Conversation Relay avoids local audio files and local STT/TTS processing.
-- `pin_mode: speech` is legacy/deprecated because it depends on local recording/transcription.
+- Speech PIN mode has been removed.
 - Caller Access web UI is working.
 - All users were removed from `callers` and `allowed_callers` in the add-on configuration tab.
 - Users were added through the Caller Access web UI.
@@ -29,7 +33,7 @@ Use this checklist for the next v2.0.0 validation pass. Keep test logs free of f
 - Correct PIN is accepted.
 - Conversation Relay remains the preferred/default voice bridge.
 - ElevenLabs Elspeth voice is working through Conversation Relay.
-- Gather remains deprecated fallback only.
+- Gather has been removed.
 - Caller Access is the preferred admin model for unified `callers` records.
 - Caller Access stores `ha_user_id`, resolves the Home Assistant display name dynamically, masks phone numbers, and treats PIN values as write-only.
 - Legacy PIN management and `allowed_callers` remain migration/fallback only.
@@ -44,7 +48,7 @@ Use this checklist for the next v2.0.0 validation pass. Keep test logs free of f
 - A call from an unlisted number with PIN fallback enabled prompts for PIN.
 - One wrong PIN was rejected as expected.
 - One correct PIN was accepted and entered conversation as expected.
-- Gather compatibility mode remains functional.
+- Gather compatibility mode was removed after the stable Conversation Relay and Caller Access validation baseline.
 - Conversation Relay mode works.
 - Conversation Relay uses ElevenLabs successfully.
 - Conversation Relay uses the Elspeth ElevenLabs voice ID successfully: `h8eW5xfRUGVJrZhAFxqK`.
@@ -56,7 +60,6 @@ Use this checklist for the next v2.0.0 validation pass. Keep test logs free of f
 - Future changes should preserve this path unless explicitly replacing it.
 - Caller Access replaces the earlier stopped allowed-caller UI attempt with a focused unified caller management section.
 - Caller Access is preferred for new caller management; add-on config `callers` remains supported.
-- Gather remains deprecated fallback compatibility mode.
 - Conversation Relay is now the preferred voice bridge mode.
 
 ## Startup
@@ -66,19 +69,17 @@ Use this checklist for the next v2.0.0 validation pass. Keep test logs free of f
 - `startup_configuration` includes:
   - `auth_mode`
   - `unknown_caller_policy`
-  - `voice_bridge_mode`
-  - `pin_mode`
+  - `voice_bridge: conversation_relay_only`
+  - `pin_fallback: dtmf`
   - `conversation_relay_tts_provider`
   - `conversation_relay_transcription_provider`
   - `conversation_relay_language`
   - `conversation_relay_voice_configured`
   - `caller_identities_count`
   - `allowed_callers_count`
-  - `local_whisper_loaded: false`
-  - `local_audio_route_enabled: false` in normal Conversation Relay mode
+  - `local_audio_pipeline: removed`
 - Startup logs do not include full caller phone numbers.
-- Default Conversation Relay startup logs state that the local Whisper/audio pipeline is not initialized.
-- Gather startup logs warn that Gather is deprecated and the local Whisper/audio pipeline will be lazy-loaded on first use.
+- Startup logs state that Conversation Relay-only mode is selected and Gather, speech PIN, Whisper, and local audio-file handling are removed.
 
 ## Authentication
 
@@ -137,7 +138,7 @@ allowed_callers:
 ## Caller Access Admin UI
 
 - Existing conversation agent dropdown still works.
-- Existing TTS engine, language, and voice dropdowns still work.
+- Home Assistant TTS engine, language, and voice dropdowns are removed because Conversation Relay uses Twilio Conversation Relay TTS settings.
 - Caller Access user dropdown loads Home Assistant users.
 - Adding a caller with one phone number works.
 - Adding a caller with multiple phone numbers works.
@@ -154,8 +155,8 @@ allowed_callers:
 
 ## Normal Test Matrix
 
-- `voice_bridge_mode: conversation_relay` is the default and preferred v2 path.
-- Default Conversation Relay startup does not load Whisper.
+- Conversation Relay is the only supported voice bridge.
+- Default startup does not load Whisper.
 - Caller Access UI loads.
 - Existing Caller Access records show.
 - Add/delete Caller Access record still works.
@@ -165,7 +166,7 @@ allowed_callers:
 - Correct PIN is accepted.
 - Conversation Relay still uses ElevenLabs Elspeth voice.
 - End-call handling still works.
-- `voice_bridge_mode: conversation_relay` returns Conversation Relay TwiML only after caller whitelist match or successful PIN validation.
+- `/start_session` returns Conversation Relay TwiML only after caller whitelist match or successful PIN validation.
 - Known failure to avoid: `block_elevenlabs` is a Home Assistant TTS engine ID and must not be used as Conversation Relay `ttsProvider`.
 - Conversation Relay `ttsProvider` defaults to `ElevenLabs` and is limited to `ElevenLabs`, `Google`, or `Amazon`.
 - Conversation Relay `ttsProvider` should be `ElevenLabs`.
@@ -174,16 +175,15 @@ allowed_callers:
 - Conversation Relay websocket sends final transcript text to Home Assistant Conversation without local TTS generation.
 - Conversation Relay mode does not write caller audio, generated TTS audio, transient transcripts, or transient response text to disk.
 - Conversation Relay mode does not mount or use `/audio/*`.
-- Whisper is not imported or loaded until a deprecated local recording/transcription path is used.
+- Whisper is not imported, loaded, or installed by the add-on.
 - Conversation Relay mode with caller whitelist authentication and ElevenLabs TTS through Twilio Conversation Relay is validated on the active Twilio account.
 
-## Optional Legacy Fallback Tests
+## Removed Legacy Route Checks
 
-- `voice_bridge_mode: gather` is hidden legacy fallback and may be removed later.
-- Gather mode still records caller commands, processes them through Home Assistant Conversation, and plays generated `/audio/*` responses after authentication.
-- `pin_mode: speech` is hidden legacy fallback and may be removed later.
-- Speech PIN fallback lazy-loads Whisper only when used.
-- Explicitly test Gather only when validating migration compatibility.
+- `/process_command` is no longer a public route.
+- `/audio/*` is no longer mounted.
+- `voice_bridge_mode` is no longer a normal add-on option.
+- `pin_mode` is no longer a normal add-on option; PIN fallback is DTMF only.
 
 ## Security TODOs Before Production
 

@@ -1,9 +1,7 @@
 from fastapi import FastAPI, Form, Request, WebSocket, WebSocketDisconnect
 from fastapi import HTTPException
 from fastapi.responses import Response, HTMLResponse, JSONResponse, RedirectResponse
-from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
-import requests
 import httpx
 import websockets
 import asyncio
@@ -17,9 +15,7 @@ from html import escape
 from urllib.parse import quote
 
 DATA_DIR = "/share/twilio_voice_assistant"
-AUDIO_DIR = f"{DATA_DIR}/audio"
 INGRESS_PROXY_IP = "172.30.32.2"
-WHISPER_MODEL = None
 
 # Load configuration from environment
 TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID")
@@ -33,7 +29,6 @@ AUTH_MODE = os.getenv("AUTH_MODE", "pin").strip().lower()
 UNKNOWN_CALLER_POLICY = os.getenv("UNKNOWN_CALLER_POLICY", "reject").strip().lower()
 CALLERS_JSON = os.getenv("CALLERS_JSON", "[]")
 ALLOWED_CALLERS_JSON = os.getenv("ALLOWED_CALLERS_JSON", "[]")
-VOICE_BRIDGE_MODE = os.getenv("VOICE_BRIDGE_MODE", "conversation_relay").strip().lower()
 CONVERSATION_RELAY_TTS_PROVIDER = os.getenv(
     "CONVERSATION_RELAY_TTS_PROVIDER", "ElevenLabs"
 ).strip()
@@ -44,7 +39,6 @@ CONVERSATION_RELAY_TRANSCRIPTION_PROVIDER = os.getenv(
 CONVERSATION_RELAY_LANGUAGE = os.getenv(
     "CONVERSATION_RELAY_LANGUAGE", "en-US"
 ).strip()
-PIN_MODE = os.getenv("PIN_MODE", "dtmf").strip().lower()
 
 SUPPORTED_AUTH_MODES = {
     "caller_whitelist",
@@ -68,18 +62,6 @@ if UNKNOWN_CALLER_POLICY not in SUPPORTED_UNKNOWN_CALLER_POLICIES:
         f"{UNKNOWN_CALLER_POLICY!r}; falling back to 'reject'"
     )
     UNKNOWN_CALLER_POLICY = "reject"
-
-SUPPORTED_VOICE_BRIDGE_MODES = {
-    "gather",
-    "conversation_relay",
-    "elevenlabs_agent",
-}
-if VOICE_BRIDGE_MODE not in SUPPORTED_VOICE_BRIDGE_MODES:
-    print(
-        "WARNING: Unsupported voice_bridge_mode "
-        f"{VOICE_BRIDGE_MODE!r}; falling back to 'conversation_relay'"
-    )
-    VOICE_BRIDGE_MODE = "conversation_relay"
 
 SUPPORTED_CONVERSATION_RELAY_TTS_PROVIDERS = {
     "ElevenLabs",
@@ -131,20 +113,6 @@ def log_timing(event: str, **fields):
 def debug_log(event: str, **fields):
     if DEBUG:
         print("DEBUG " + json.dumps({"event": event, **fields}, sort_keys=True))
-
-
-def get_whisper_model():
-    """Lazy-load Whisper only for deprecated Gather or speech-PIN paths."""
-    global WHISPER_MODEL
-    if WHISPER_MODEL is None:
-        print(
-            "WARNING: Loading local Whisper model for deprecated "
-            "Gather/speech-PIN audio transcription path."
-        )
-        import whisper
-
-        WHISPER_MODEL = whisper.load_model("tiny")
-    return WHISPER_MODEL
 
 
 def mask_phone_number(phone_number: str | None) -> str:
@@ -347,8 +315,8 @@ def log_startup_configuration():
         "startup_configuration",
         auth_mode=AUTH_MODE,
         unknown_caller_policy=UNKNOWN_CALLER_POLICY,
-        voice_bridge_mode=VOICE_BRIDGE_MODE,
-        pin_mode=PIN_MODE,
+        voice_bridge="conversation_relay_only",
+        pin_fallback="dtmf",
         conversation_relay_tts_provider=CONVERSATION_RELAY_TTS_PROVIDER,
         conversation_relay_transcription_provider=(
             CONVERSATION_RELAY_TRANSCRIPTION_PROVIDER
@@ -357,27 +325,12 @@ def log_startup_configuration():
         conversation_relay_voice_configured=bool(CONVERSATION_RELAY_VOICE),
         caller_identities_count=CALLER_IDENTITY_RECORD_COUNT,
         allowed_callers_count=ALLOWED_CALLER_RECORD_COUNT,
-        local_whisper_loaded=False,
-        local_audio_route_enabled=VOICE_BRIDGE_MODE == "gather",
+        local_audio_pipeline="removed",
     )
-    if VOICE_BRIDGE_MODE == "gather":
-        print(
-            "WARNING: voice_bridge_mode=gather is hidden legacy fallback behavior "
-            "and may be removed in a future cleanup; "
-            "conversation_relay is the preferred v2 voice bridge. "
-            "Local Whisper/audio pipeline will be lazy-loaded on first use."
-        )
-    else:
-        print(
-            "INFO: Conversation Relay mode selected; local Whisper/audio pipeline "
-            "is not initialized at startup."
-        )
-    if PIN_MODE == "speech":
-        print(
-            "WARNING: pin_mode=speech is hidden legacy fallback behavior and may "
-            "be removed in a future cleanup; it will lazy-load local Whisper if "
-            "PIN fallback is used."
-        )
+    print(
+        "INFO: Conversation Relay-only mode selected; Gather, speech PIN, "
+        "Whisper, and local audio-file handling are removed."
+    )
     print("TODO: Add Twilio webhook signature validation before production use.")
     print("TODO: Add Conversation Relay websocket validation before production use.")
 
@@ -389,11 +342,6 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(lifespan=lifespan)
-if VOICE_BRIDGE_MODE == "gather":
-    # Deprecated Gather fallback audio route. The Conversation Relay path does
-    # not generate or serve local audio files.
-    os.makedirs(AUDIO_DIR, exist_ok=True)
-    app.mount("/audio", StaticFiles(directory=AUDIO_DIR), name="audio")
 
 
 # Request models for current Caller Access plus legacy PIN/admin settings.
@@ -411,9 +359,6 @@ class CallerAccessRequest(BaseModel):
 
 class SettingsRequest(BaseModel):
     conversation_agent_id: str | None = None
-    tts_engine_id: str | None = None
-    tts_language: str | None = None
-    tts_voice: str | None = None
 
 
 def require_ingress(request: Request):
@@ -444,9 +389,6 @@ def load_settings():
     """Load admin settings from JSON file."""
     defaults = {
         "conversation_agent_id": "",
-        "tts_engine_id": "",
-        "tts_language": "",
-        "tts_voice": "",
     }
     try:
         migrate_legacy_file("/share/twilio_voice_assistant_settings.json", SETTINGS_FILE)
@@ -653,55 +595,6 @@ async def fetch_conversation_agents():
     return agents, None
 
 
-async def fetch_tts_engines():
-    """Fetch available Home Assistant TTS engines."""
-    result, error = await ha_websocket_request({"type": "tts/engine/list"})
-    if error:
-        return [], error
-
-    providers = result.get("providers", []) if isinstance(result, dict) else []
-    engines = []
-    for provider in providers:
-        if not isinstance(provider, dict):
-            continue
-        engine_id = provider.get("engine_id")
-        if engine_id and not provider.get("deprecated", False):
-            engines.append({
-                "id": engine_id,
-                "name": provider.get("name") or engine_id,
-                "supported_languages": provider.get("supported_languages") or [],
-            })
-    return engines, None
-
-
-async def fetch_tts_voices(engine_id: str, language: str):
-    """Fetch available voices for a Home Assistant TTS engine and language."""
-    if not engine_id or not language:
-        return [], None
-
-    result, error = await ha_websocket_request({
-        "type": "tts/engine/voices",
-        "engine_id": engine_id,
-        "language": language,
-    })
-    if error:
-        return [], error
-
-    raw_voices = result.get("voices", []) if isinstance(result, dict) else []
-    voices = []
-    for voice in raw_voices:
-        if isinstance(voice, str):
-            voices.append({"id": voice, "name": voice})
-        elif isinstance(voice, dict):
-            voice_id = voice.get("voice_id") or voice.get("id") or voice.get("name")
-            if voice_id:
-                voices.append({
-                    "id": voice_id,
-                    "name": voice.get("name") or voice_id,
-                })
-    return voices, None
-
-
 def pin_entry_user_id(pin_entry):
     if isinstance(pin_entry, dict):
         return pin_entry.get("user_id")
@@ -746,11 +639,6 @@ def twiml_response(xml: str):
     return Response(content=xml.strip(), media_type="application/xml")
 
 
-def public_audio_url(filename: str) -> str:
-    # Deprecated Gather fallback only. Conversation Relay never serves local audio.
-    return f"{PUBLIC_BASE_URL}/audio/{filename}"
-
-
 def public_websocket_url(path: str) -> str:
     base = PUBLIC_BASE_URL
     if base.startswith("https://"):
@@ -758,17 +646,6 @@ def public_websocket_url(path: str) -> str:
     elif base.startswith("http://"):
         base = "ws://" + base[len("http://"):]
     return f"{base}{path}"
-
-
-def safe_redirect_to_session(user_id: str, user_name: str | None, message: str):
-    encoded_user_id = quote(user_id)
-    encoded_user_name = quote(user_name or user_id)
-    return twiml_response(f"""
-    <Response>
-        <Say>{message}</Say>
-        <Redirect>/start_session?user_id={encoded_user_id}&amp;user_name={encoded_user_name}</Redirect>
-    </Response>
-    """)
 
 
 def polite_hangup(message: str = "Goodbye."):
@@ -781,31 +658,15 @@ def polite_hangup(message: str = "Goodbye."):
 
 
 def prompt_for_pin(call_sid: str | None = None):
-    # Legacy/fallback auth path. Caller Access should normally bypass this for known callers.
-    if PIN_MODE == "dtmf":
-        log_timing("pin_prompt_sent", call_sid=call_sid, pin_mode="dtmf")
-        return twiml_response("""
-        <Response>
-            <Gather input="dtmf" numDigits="4" timeout="10" action="/check_pin" method="POST">
-                <Say>Please enter your four digit PIN.</Say>
-            </Gather>
-            <Say>I did not receive a PIN. Goodbye.</Say>
-            <Hangup/>
-        </Response>
-        """)
-
-    log_timing("pin_prompt_sent", call_sid=call_sid, pin_mode="speech")
+    # Fallback auth path. Caller Access normally bypasses this for known callers.
+    log_timing("pin_prompt_sent", call_sid=call_sid, pin_method="dtmf")
     return twiml_response("""
     <Response>
-        <Say>Please say your four digit PIN slowly, one digit at a time, after the beep.</Say>
-        <Pause length="1"/>
-        <Record
-            maxLength="5"
-            timeout="4"
-            action="/check_pin"
-            playBeep="true"
-            trim="do-not-trim"
-        />
+        <Gather input="dtmf" numDigits="4" timeout="10" action="/check_pin" method="POST">
+            <Say>Please enter your four digit PIN.</Say>
+        </Gather>
+        <Say>I did not receive a PIN. Goodbye.</Say>
+        <Hangup/>
     </Response>
     """)
 
@@ -818,21 +679,6 @@ def redirect_to_start_session(user_id: str, user_name: str | None):
         <Redirect>/start_session?user_id={encoded_user_id}&amp;user_name={encoded_user_name}</Redirect>
     </Response>
     """)
-
-
-def record_command_twiml(encoded_user_id: str, encoded_user_name: str) -> str:
-    # Deprecated Gather fallback command loop.
-    return f"""
-        <Record
-            maxLength="10"
-            timeout="5"
-            action="/process_command?user_id={encoded_user_id}&amp;user_name={encoded_user_name}"
-            playBeep="true"
-            trim="do-not-trim"
-        />
-        <Say>I did not hear anything. Goodbye.</Say>
-        <Hangup/>
-    """
 
 
 def conversation_relay_twiml(user_id: str, user_name: str) -> str:
@@ -866,110 +712,6 @@ def conversation_relay_twiml(user_id: str, user_name: str) -> str:
         </Connect>
     </Response>
     """
-
-
-def extension_from_content_type(content_type: str | None) -> str:
-    if not content_type:
-        return "mp3"
-    if "wav" in content_type:
-        return "wav"
-    if "mpeg" in content_type or "mp3" in content_type:
-        return "mp3"
-    if "ogg" in content_type:
-        return "ogg"
-    return "mp3"
-
-
-async def resolve_tts_settings(settings):
-    """Fill missing TTS settings for deprecated Gather fallback audio."""
-    resolved = dict(settings)
-    engines, error = await fetch_tts_engines()
-    if error:
-        print(f"Could not fetch TTS engines: {error}")
-        return resolved
-
-    selected_engine = None
-    if resolved.get("tts_engine_id"):
-        selected_engine = next(
-            (engine for engine in engines if engine["id"] == resolved["tts_engine_id"]),
-            None,
-        )
-    if selected_engine is None and engines:
-        selected_engine = engines[0]
-        resolved["tts_engine_id"] = selected_engine["id"]
-
-    if not resolved.get("tts_language") and selected_engine:
-        languages = selected_engine.get("supported_languages") or []
-        if isinstance(languages, list) and languages:
-            resolved["tts_language"] = languages[0]
-        else:
-            resolved["tts_language"] = "en-US"
-
-    return resolved
-
-
-async def tts_to_audio(text: str, filename: str) -> str:
-    # Deprecated Gather fallback only. Conversation Relay returns text to Twilio.
-    settings = await resolve_tts_settings(load_settings())
-    engine_id = settings.get("tts_engine_id")
-    language = settings.get("tts_language")
-    voice = settings.get("tts_voice")
-
-    if not engine_id:
-        raise RuntimeError("No Home Assistant TTS engine is configured or available.")
-
-    payload = {
-        "engine_id": engine_id,
-        "message": text,
-        "cache": True,
-    }
-    if language:
-        payload["language"] = language
-    if voice:
-        payload["options"] = {"voice": voice}
-
-    response = requests.post(
-        "http://supervisor/core/api/tts_get_url",
-        headers={
-            "Authorization": f"Bearer {SUPERVISOR_TOKEN}",
-            "Content-Type": "application/json",
-        },
-        json=payload,
-        timeout=30,
-    )
-
-    print("HA TTS status:", response.status_code)
-    print("HA TTS body:", response.text[:500])
-
-    if response.status_code < 200 or response.status_code >= 300:
-        raise RuntimeError(f"Home Assistant TTS returned {response.status_code}")
-
-    tts_response = response.json()
-    tts_path = tts_response.get("path")
-    if not tts_path:
-        raise RuntimeError(f"Home Assistant TTS response missing path: {tts_response}")
-
-    audio_url = f"http://supervisor/core{tts_path}"
-    audio_response = requests.get(
-        audio_url,
-        headers={"Authorization": f"Bearer {SUPERVISOR_TOKEN}"},
-        timeout=30,
-    )
-
-    if audio_response.status_code < 200 or audio_response.status_code >= 300:
-        raise RuntimeError(
-            f"Could not download Home Assistant TTS audio: {audio_response.status_code}"
-        )
-
-    extension = extension_from_content_type(audio_response.headers.get("content-type"))
-    safe_filename = re.sub(r"[^a-zA-Z0-9_.-]", "_", filename)
-    os.makedirs(AUDIO_DIR, exist_ok=True)
-    output_path = f"{AUDIO_DIR}/{safe_filename}.{extension}"
-
-    with open(output_path, "wb") as f:
-        f.write(audio_response.content)
-
-    return output_path
 
 
 def normalize_digits(text: str) -> str:
@@ -1148,7 +890,7 @@ async def handle_pin_digits(digits: str, call_sid: str | None = None):
             "pin_accepted",
             call_sid=call_sid,
             user_id=user_id,
-            bridge_mode=VOICE_BRIDGE_MODE,
+            bridge_mode="conversation_relay",
         )
         return twiml_response(f"""
         <Response>
@@ -1163,37 +905,6 @@ async def handle_pin_digits(digits: str, call_sid: str | None = None):
         <Redirect>/incoming_call</Redirect>
     </Response>
     """)
-
-
-def download_twilio_recording(recording_url: str, audio_path: str) -> bool:
-    # Deprecated local recording path for Gather command audio and speech PIN.
-    # Conversation Relay does not download caller recordings.
-    try:
-        audio_url = recording_url + ".mp3"
-        print(f"Downloading Twilio recording: {audio_url}")
-
-        r = requests.get(
-            audio_url,
-            auth=(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN),
-            timeout=20,
-        )
-
-        print("Twilio recording status:", r.status_code)
-        print("Twilio recording content-type:", r.headers.get("content-type"))
-
-        if r.status_code != 200:
-            print("Twilio recording download failed:", r.text[:500])
-            return False
-
-        with open(audio_path, "wb") as f:
-            f.write(r.content)
-
-        return True
-
-    except Exception:
-        print("Exception downloading Twilio recording:")
-        traceback.print_exc()
-        return False
 
 
 # Admin UI endpoints
@@ -1366,24 +1077,6 @@ async def admin_ui(request: Request):
                         <option value="">-- Loading agents --</option>
                     </select>
                 </div>
-                <div class="form-group">
-                    <label for="ttsEngine">TTS Engine:</label>
-                    <select id="ttsEngine" onchange="onTtsEngineChanged()">
-                        <option value="">-- Loading TTS engines --</option>
-                    </select>
-                </div>
-                <div class="form-group">
-                    <label for="ttsLanguage">TTS Language:</label>
-                    <select id="ttsLanguage" onchange="loadVoices()">
-                        <option value="">-- Select TTS engine first --</option>
-                    </select>
-                </div>
-                <div class="form-group">
-                    <label for="ttsVoice">TTS Voice:</label>
-                    <select id="ttsVoice">
-                        <option value="">Default voice</option>
-                    </select>
-                </div>
                 <button onclick="saveSettings()">Save Settings</button>
                 <div class="status" id="settingsStatus"></div>
             </div>
@@ -1437,14 +1130,13 @@ async def admin_ui(request: Request):
         <script>
             const ADMIN_API_BASE = __ADMIN_API_BASE__;
             let appSettings = {};
-            let ttsEngines = [];
             let haUsers = [];
 
             async function loadSettings() {
                 try {
                     const res = await fetch(`${ADMIN_API_BASE}/settings`);
                     appSettings = await res.json();
-                    await Promise.all([loadConversationAgents(), loadTtsEngines()]);
+                    await loadConversationAgents();
                 } catch (err) {
                     console.error('Error loading settings:', err);
                     const status = document.getElementById('settingsStatus');
@@ -1471,94 +1163,11 @@ async def admin_ui(request: Request):
                 select.value = appSettings.conversation_agent_id || '';
             }
 
-            async function loadTtsEngines() {
-                const res = await fetch(`${ADMIN_API_BASE}/tts-engines`);
-                const data = await res.json();
-                ttsEngines = data.engines || [];
-                const select = document.getElementById('ttsEngine');
-                select.innerHTML = '<option value="">-- Select TTS engine --</option>';
-
-                ttsEngines.forEach(engine => {
-                    const opt = document.createElement('option');
-                    opt.value = engine.id;
-                    opt.textContent = engine.name;
-                    select.appendChild(opt);
-                });
-
-                select.value = appSettings.tts_engine_id || '';
-                onTtsEngineChanged();
-            }
-
-            function onTtsEngineChanged() {
-                const engineId = document.getElementById('ttsEngine').value;
-                const languageSelect = document.getElementById('ttsLanguage');
-                const engine = ttsEngines.find(item => item.id === engineId);
-                languageSelect.innerHTML = '';
-
-                if (!engine) {
-                    languageSelect.innerHTML = '<option value="">-- Select TTS engine first --</option>';
-                    document.getElementById('ttsVoice').innerHTML = '<option value="">Default voice</option>';
-                    return;
-                }
-
-                const languages = Array.isArray(engine.supported_languages) ? engine.supported_languages : [];
-                if (languages.length > 0) {
-                    languages.forEach(language => {
-                        const opt = document.createElement('option');
-                        opt.value = language;
-                        opt.textContent = language;
-                        languageSelect.appendChild(opt);
-                    });
-                } else {
-                    const opt = document.createElement('option');
-                    opt.value = appSettings.tts_language || 'en-US';
-                    opt.textContent = appSettings.tts_language || 'en-US';
-                    languageSelect.appendChild(opt);
-                }
-
-                languageSelect.value = appSettings.tts_language || languageSelect.options[0]?.value || '';
-                loadVoices();
-            }
-
-            async function loadVoices() {
-                const engineId = document.getElementById('ttsEngine').value;
-                const language = document.getElementById('ttsLanguage').value;
-                const select = document.getElementById('ttsVoice');
-                select.innerHTML = '<option value="">Default voice</option>';
-
-                if (!engineId || !language) return;
-
-                try {
-                    const res = await fetch(`${ADMIN_API_BASE}/tts-voices?engine_id=${encodeURIComponent(engineId)}&language=${encodeURIComponent(language)}`);
-                    const data = await res.json();
-                    if (data.voices && data.voices.length > 0) {
-                        data.voices.forEach(voice => {
-                            const opt = document.createElement('option');
-                            opt.value = voice.id;
-                            opt.textContent = voice.name;
-                            select.appendChild(opt);
-                        });
-                    }
-                    select.value = appSettings.tts_voice || '';
-                } catch (err) {
-                    console.error('Error loading TTS voices:', err);
-                }
-            }
-
             async function saveSettings() {
                 const status = document.getElementById('settingsStatus');
                 const settings = {
-                    conversation_agent_id: document.getElementById('conversationAgent').value,
-                    tts_engine_id: document.getElementById('ttsEngine').value,
-                    tts_language: document.getElementById('ttsLanguage').value,
-                    tts_voice: document.getElementById('ttsVoice').value
+                    conversation_agent_id: document.getElementById('conversationAgent').value
                 };
-
-                if (!settings.tts_engine_id) {
-                    status.className = 'status error';
-                    status.textContent = 'Please select a TTS engine';
-                    return;
-                }
 
                 try {
                     const res = await fetch(`${ADMIN_API_BASE}/settings`, {
@@ -1877,12 +1486,7 @@ async def update_settings(settings_request: SettingsRequest, request: Request):
     require_ingress(request)
     settings = {
         "conversation_agent_id": settings_request.conversation_agent_id or "",
-        "tts_engine_id": settings_request.tts_engine_id or "",
-        "tts_language": settings_request.tts_language or "",
-        "tts_voice": settings_request.tts_voice or "",
     }
-    if not settings["tts_engine_id"]:
-        return JSONResponse({"error": "TTS engine required"}, status_code=400)
 
     if save_settings(settings):
         return {"success": True, "settings": settings}
@@ -1895,28 +1499,6 @@ async def get_conversation_agents(request: Request):
     require_ingress(request)
     agents, error = await fetch_conversation_agents()
     response = {"agents": agents}
-    if error:
-        response["error"] = error
-    return response
-
-
-@app.get("/admin/api/tts-engines")
-async def get_tts_engines(request: Request):
-    """Get available Home Assistant TTS engines"""
-    require_ingress(request)
-    engines, error = await fetch_tts_engines()
-    response = {"engines": engines}
-    if error:
-        response["error"] = error
-    return response
-
-
-@app.get("/admin/api/tts-voices")
-async def get_tts_voices(engine_id: str, language: str, request: Request):
-    """Get available voices for a Home Assistant TTS engine"""
-    require_ingress(request)
-    voices, error = await fetch_tts_voices(engine_id, language)
-    response = {"voices": voices}
     if error:
         response["error"] = error
     return response
@@ -2048,7 +1630,7 @@ async def incoming_call(
     log_timing(
         "inbound_call_received",
         call_sid=CallSid,
-        bridge_mode=VOICE_BRIDGE_MODE,
+        bridge_mode="conversation_relay",
         auth_mode=AUTH_MODE,
         caller=masked_from,
     )
@@ -2090,7 +1672,6 @@ async def incoming_call(
 
 @app.post("/check_pin")
 async def check_pin(
-    RecordingUrl: str | None = Form(None),
     CallSid: str | None = Form(None),
     Digits: str | None = Form(None),
 ):
@@ -2101,33 +1682,12 @@ async def check_pin(
         if Digits:
             return await handle_pin_digits(Digits, call_sid=CallSid)
 
-        if not RecordingUrl or not CallSid:
-            return twiml_response("""
-            <Response>
-                <Say>Sorry, I did not receive your PIN. Please try again.</Say>
-                <Redirect>/incoming_call</Redirect>
-            </Response>
-            """)
-
-        audio_path = f"/tmp/{CallSid}_pin.mp3"
-
-        if not download_twilio_recording(RecordingUrl, audio_path):
-            return twiml_response("""
-            <Response>
-                <Say>Sorry, I could not hear your PIN. Please try again.</Say>
-                <Redirect>/incoming_call</Redirect>
-            </Response>
-            """)
-
-        result = get_whisper_model().transcribe(
-            audio_path,
-            no_speech_threshold=0.4,
-            condition_on_previous_text=False
-        )
-        spoken_text = result.get("text", "").strip()
-
-        debug_log("pin_speech_transcribed", text_length=len(spoken_text))
-        return await handle_pin_digits(spoken_text, call_sid=CallSid)
+        return twiml_response("""
+        <Response>
+            <Say>Sorry, I did not receive your PIN. Please try again.</Say>
+            <Redirect>/incoming_call</Redirect>
+        </Response>
+        """)
 
     except Exception:
         print("Exception in check_pin:")
@@ -2157,48 +1717,20 @@ async def start_session(
             </Response>
             """)
         user_name = user_name or user_id
-        encoded_user_id = quote(user_id)
-        encoded_user_name = quote(user_name)
         log_timing(
             "bridge_mode_selected",
-            bridge_mode=VOICE_BRIDGE_MODE,
+            bridge_mode="conversation_relay",
             user_id=user_id,
         )
-
-        if VOICE_BRIDGE_MODE == "conversation_relay":
-            log_timing(
-                "conversation_relay_twiml_returned",
-                user_id=user_id,
-                tts_provider=CONVERSATION_RELAY_TTS_PROVIDER,
-                transcription_provider=CONVERSATION_RELAY_TRANSCRIPTION_PROVIDER,
-                language=CONVERSATION_RELAY_LANGUAGE,
-                conversation_relay_voice_configured=bool(CONVERSATION_RELAY_VOICE),
-            )
-            return twiml_response(conversation_relay_twiml(user_id, user_name))
-
-        if VOICE_BRIDGE_MODE == "elevenlabs_agent":
-            print("WARNING: elevenlabs_agent mode is configured but not implemented yet.")
-            return polite_hangup(
-                "Sorry, ElevenLabs Agent mode is not available yet. Goodbye."
-            )
-
-        # Deprecated Gather/audio-file fallback. Keep for compatibility until removal
-        # is explicitly planned after more stable Conversation Relay use.
-        prompt_audio = await tts_to_audio(
-            f"Hello {user_name}. What would you like to do?",
-            f"{user_id}_prompt",
+        log_timing(
+            "conversation_relay_twiml_returned",
+            user_id=user_id,
+            tts_provider=CONVERSATION_RELAY_TTS_PROVIDER,
+            transcription_provider=CONVERSATION_RELAY_TRANSCRIPTION_PROVIDER,
+            language=CONVERSATION_RELAY_LANGUAGE,
+            conversation_relay_voice_configured=bool(CONVERSATION_RELAY_VOICE),
         )
-
-        filename = os.path.basename(prompt_audio)
-        public_url = public_audio_url(filename)
-        record_twiml = record_command_twiml(encoded_user_id, encoded_user_name)
-
-        return twiml_response(f"""
-        <Response>
-            <Play>{public_url}</Play>
-            {record_twiml}
-        </Response>
-        """)
+        return twiml_response(conversation_relay_twiml(user_id, user_name))
 
     except Exception:
         print("Exception in start_session:")
@@ -2209,91 +1741,6 @@ async def start_session(
             <Hangup/>
         </Response>
         """)
-
-
-@app.post("/process_command")
-async def process_command(
-    RecordingUrl: str = Form(...),
-    CallSid: str = Form(...),
-    user_id: str | None = None,
-    user_name: str | None = None,
-    user: str | None = None,
-):
-    # Deprecated Gather/audio/Whisper command processing path.
-    # Conversation Relay should remain the normal product path.
-    try:
-        user_id = user_id or user
-        if not user_id:
-            return twiml_response("""
-            <Response>
-                <Say>Sorry, there was a problem identifying your user.</Say>
-                <Hangup/>
-            </Response>
-            """)
-        user_name = user_name or user_id
-        encoded_user_id = quote(user_id)
-        encoded_user_name = quote(user_name)
-        audio_path = f"/tmp/{CallSid}_cmd.mp3"
-
-        if not download_twilio_recording(RecordingUrl, audio_path):
-            return safe_redirect_to_session(
-                user_id,
-                user_name,
-                "Sorry, I could not hear your request. Please try again."
-            )
-
-        # Prevent Whisper from transcribing empty files
-        if os.path.getsize(audio_path) < 2000:
-            return polite_hangup("I did not hear anything. Goodbye.")
-
-        result = get_whisper_model().transcribe(
-            audio_path,
-            no_speech_threshold=0.4,
-            condition_on_previous_text=False
-        )
-        spoken_text = result.get("text", "").strip()
-
-        debug_log("command_transcribed", text_length=len(spoken_text))
-
-        if not spoken_text:
-            return polite_hangup("I did not hear anything. Goodbye.")
-
-        if is_end_call_phrase(spoken_text):
-            return polite_hangup("Understood. Goodbye.")
-
-        try:
-            reply = await send_to_home_assistant_conversation(spoken_text, user_id)
-        except Exception:
-            print("Home Assistant Conversation request failed.")
-            traceback.print_exc()
-            return safe_redirect_to_session(
-                user_id,
-                user_name,
-                "Sorry, Home Assistant returned an error."
-            )
-
-        debug_log("home_assistant_reply_ready", text_length=len(reply))
-
-        reply_audio = await tts_to_audio(reply, f"{CallSid}_reply")
-        filename = os.path.basename(reply_audio)
-        public_url = public_audio_url(filename)
-        record_twiml = record_command_twiml(encoded_user_id, encoded_user_name)
-
-        return twiml_response(f"""
-        <Response>
-            <Play>{public_url}</Play>
-            {record_twiml}
-        </Response>
-        """)
-
-    except Exception:
-        print("Exception in process_command:")
-        traceback.print_exc()
-        return safe_redirect_to_session(
-            user_id,
-            user_name,
-            "Sorry, something went wrong processing your request."
-        )
 
 
 @app.websocket("/conversation_relay")

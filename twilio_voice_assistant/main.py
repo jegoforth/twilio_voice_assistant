@@ -22,7 +22,8 @@ AUDIO_DIR = f"{DATA_DIR}/audio"
 INGRESS_PROXY_IP = "172.30.32.2"
 os.makedirs(AUDIO_DIR, exist_ok=True)
 
-# Faster model for phone audio
+# Deprecated Gather fallback only. Conversation Relay is the preferred text path
+# and does not use local Whisper/audio files.
 model = whisper.load_model("tiny")
 
 # Load configuration from environment
@@ -114,9 +115,12 @@ if missing_vars:
         "Please configure the addon with your API credentials."
     )
 
-PIN_MAP_FILE = f"{DATA_DIR}/pin_map.json"
+# Current Caller Access storage. This is the preferred admin-managed identity path.
 SETTINGS_FILE = f"{DATA_DIR}/settings.json"
 CALLERS_FILE = f"{DATA_DIR}/callers.json"
+
+# Legacy PIN map storage remains for migration and unknown-caller fallback.
+PIN_MAP_FILE = f"{DATA_DIR}/pin_map.json"
 
 
 def log_timing(event: str, **fields):
@@ -267,6 +271,7 @@ def load_caller_identity_records():
 
 
 def load_legacy_allowed_caller_records():
+    # Legacy add-on YAML shape. Keep parsing for migration compatibility only.
     return load_json_list(ALLOWED_CALLERS_JSON, "allowed_callers")
 
 
@@ -360,9 +365,12 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(lifespan=lifespan)
+# Deprecated Gather fallback audio route. The Conversation Relay path does not
+# generate or serve local audio files.
 app.mount("/audio", StaticFiles(directory=AUDIO_DIR), name="audio")
 
 
+# Request models for current Caller Access plus legacy PIN/admin settings.
 class PinRequest(BaseModel):
     pin: str
     user_id: str
@@ -713,6 +721,7 @@ def twiml_response(xml: str):
 
 
 def public_audio_url(filename: str) -> str:
+    # Deprecated Gather fallback only. Conversation Relay never serves local audio.
     return f"{PUBLIC_BASE_URL}/audio/{filename}"
 
 
@@ -746,6 +755,7 @@ def polite_hangup(message: str = "Goodbye."):
 
 
 def prompt_for_pin(call_sid: str | None = None):
+    # Legacy/fallback auth path. Caller Access should normally bypass this for known callers.
     if PIN_MODE == "dtmf":
         log_timing("pin_prompt_sent", call_sid=call_sid, pin_mode="dtmf")
         return twiml_response("""
@@ -785,6 +795,7 @@ def redirect_to_start_session(user_id: str, user_name: str | None):
 
 
 def record_command_twiml(encoded_user_id: str, encoded_user_name: str) -> str:
+    # Deprecated Gather fallback command loop.
     return f"""
         <Record
             maxLength="10"
@@ -799,6 +810,7 @@ def record_command_twiml(encoded_user_id: str, encoded_user_name: str) -> str:
 
 
 def conversation_relay_twiml(user_id: str, user_name: str) -> str:
+    # Preferred v2 path: text-only bridge with Twilio Conversation Relay.
     websocket_url = public_websocket_url("/conversation_relay")
     attrs = {
         "url": websocket_url,
@@ -843,7 +855,7 @@ def extension_from_content_type(content_type: str | None) -> str:
 
 
 async def resolve_tts_settings(settings):
-    """Fill missing TTS settings from available Home Assistant engines."""
+    """Fill missing TTS settings for deprecated Gather fallback audio."""
     resolved = dict(settings)
     engines, error = await fetch_tts_engines()
     if error:
@@ -871,6 +883,7 @@ async def resolve_tts_settings(settings):
 
 
 async def tts_to_audio(text: str, filename: str) -> str:
+    # Deprecated Gather fallback only. Conversation Relay returns text to Twilio.
     settings = await resolve_tts_settings(load_settings())
     engine_id = settings.get("tts_engine_id")
     language = settings.get("tts_language")
@@ -2141,6 +2154,8 @@ async def start_session(
                 "Sorry, ElevenLabs Agent mode is not available yet. Goodbye."
             )
 
+        # Deprecated Gather/audio-file fallback. Keep for compatibility until removal
+        # is explicitly planned after more stable Conversation Relay use.
         prompt_audio = await tts_to_audio(
             f"Hello {user_name}. What would you like to do?",
             f"{user_id}_prompt",
@@ -2176,6 +2191,8 @@ async def process_command(
     user_name: str | None = None,
     user: str | None = None,
 ):
+    # Deprecated Gather/audio/Whisper command processing path.
+    # Conversation Relay should remain the normal product path.
     try:
         user_id = user_id or user
         if not user_id:
@@ -2253,6 +2270,8 @@ async def process_command(
 
 @app.websocket("/conversation_relay")
 async def conversation_relay_websocket(websocket: WebSocket):
+    # Preferred v2 path: receive final text transcripts, call HA Conversation,
+    # and return response text without local TTS/audio file handling.
     await websocket.accept()
     log_timing("websocket_connected", bridge_mode="conversation_relay")
 

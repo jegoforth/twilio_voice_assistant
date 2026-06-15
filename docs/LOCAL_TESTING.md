@@ -50,7 +50,7 @@ Use this checklist for the next v2.0.0 validation pass. Keep test logs free of f
 - Future changes should preserve this path unless explicitly replacing it.
 - Caller Access replaces the earlier stopped allowed-caller UI attempt with a focused unified caller management section.
 - Caller Access is preferred for new caller management; add-on config `callers` remains supported.
-- Gather remains fallback compatibility mode.
+- Gather remains deprecated fallback compatibility mode.
 - Conversation Relay is now the preferred voice bridge mode.
 
 ## Startup
@@ -77,7 +77,8 @@ Use this checklist for the next v2.0.0 validation pass. Keep test logs free of f
 - The active schema includes `allowed_callers`.
 - After schema changes, the add-on version is bumped and Home Assistant shows the new version after repository refresh or reinstall.
 - Legacy `allowed_callers[*].name` is optional in the schema so existing options can be saved while migrating to `callers`.
-- Preferred unified caller identity configuration works from the standard add-on options/YAML editor:
+- Normal caller identity setup uses Caller Access in the web UI.
+- Advanced/manual unified caller identity configuration still works from the standard add-on options/YAML editor:
 
 ```yaml
 auth_mode: caller_whitelist
@@ -100,7 +101,7 @@ callers:
       - "+15551234567"
 ```
 
-- Legacy `allowed_callers` single-number caller whitelist configuration still works:
+- Legacy migration-only `allowed_callers` single-number caller whitelist configuration still works:
 
 ```yaml
 auth_mode: caller_whitelist
@@ -139,12 +140,13 @@ allowed_callers:
 - Deleting an admin-managed caller access record works.
 - Legacy PIN management is collapsed and de-emphasized.
 - Legacy `allowed_callers` and old PIN map records continue to work at runtime during migration.
+- Normal validation should use Caller Access records, not add-on YAML caller records.
 
 ## Bridge Modes
 
 - `voice_bridge_mode: conversation_relay` is the default and preferred v2 path.
 - `voice_bridge_mode: gather` is deprecated fallback compatibility mode.
-- Gather remains fallback compatibility mode.
+- Gather remains deprecated fallback compatibility mode.
 - Gather mode still records caller commands, processes them through Home Assistant Conversation, and plays generated `/audio/*` responses after authentication.
 - Conversation Relay is now the preferred voice bridge mode.
 - `voice_bridge_mode: conversation_relay` returns Conversation Relay TwiML only after caller whitelist match or successful PIN validation.

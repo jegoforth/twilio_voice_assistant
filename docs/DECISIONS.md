@@ -286,13 +286,15 @@ callers:
 
 Implementation note:
 
-The implementation reads canonical `callers` and legacy `allowed_callers` from the standard Home Assistant add-on configuration path. Entries are normalized into the same flat phone-number lookup, logs use masked caller context, and the selected bridge mode starts only after a whitelist match or successful PIN fallback.
+The implementation reads Caller Access records, advanced/manual `callers`, and legacy `allowed_callers`. Entries are normalized into the same flat phone-number lookup, logs use masked caller context, and the selected bridge mode starts only after a whitelist match or successful PIN fallback.
 
 `ha_user_id` is the required stable identity key for canonical `callers`. Configured `name` is optional and retained only as a fallback label. When the app matches a known caller or accepts a unified caller PIN, it resolves the Home Assistant user display name from `ha_user_id`; if lookup fails, it falls back to configured `name`, then `ha_user_id`.
 
 Schema note: legacy `allowed_callers[*].name` is also optional so Home Assistant can save existing options during the migration from `allowed_callers` to canonical `callers`.
 
 Caller Access admin UI is now the preferred management model for unified caller identity. It writes admin-managed `callers` records to `/share/twilio_voice_assistant/callers.json`, stores `ha_user_id` as the stable key, resolves the Home Assistant display name dynamically, masks phone numbers in the UI, and treats PIN values as write-only. Add-on config `callers` are still loaded and shown as read-only config-sourced records, while legacy `allowed_callers` and the old PIN map remain runtime migration/fallback paths. During migration, callers may exist in both add-on config and Caller Access storage; the long-term direction is to use Caller Access as the editable source and stop editing caller identity in two places.
+
+Cleanup direction: the normal product path is Caller Access UI -> Conversation Relay -> Home Assistant Conversation -> ElevenLabs voice. Gather/audio/Whisper/TTS-file handling remains deprecated fallback only and should be removed in a future cleanup phase after additional stable use.
 
 Startup configuration logging now runs from a FastAPI startup hook instead of module import so deployment logs clearly show the active authentication and bridge configuration when the app starts.
 
@@ -327,7 +329,7 @@ Stable v2 baseline:
 - Conversation Relay is much faster than the previous Gather/TTS/audio-file path.
 - This version should be treated as the known-good baseline before adding new features.
 - Future changes should preserve this path unless explicitly replacing it.
-- Gather remains fallback compatibility mode.
+- Gather remains deprecated fallback compatibility mode.
 - Conversation Relay is now the preferred voice bridge mode.
 
 The attempted inline allowed-caller management work was reverted/stopped. Caller Access supersedes it with a smaller, isolated UI that manages canonical caller records in `/share/twilio_voice_assistant/callers.json` without modifying Home Assistant add-on options directly. Future caller management can still move into a HACS options flow or separately designed Home Assistant-native UI.

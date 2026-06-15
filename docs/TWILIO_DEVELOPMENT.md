@@ -132,7 +132,7 @@ Validated Caller Access behavior:
 - Correct PIN was accepted and entered Conversation Relay as expected.
 - Conversation Relay remains the preferred/default voice bridge.
 
-Preferred v2 unified caller identity config:
+Advanced/manual unified caller identity config:
 
 ```yaml
 auth_mode: caller_whitelist
@@ -151,7 +151,7 @@ callers:
 
 The canonical `callers` list is the migration target for caller identity. Each record requires `ha_user_id` and one or more `phone_numbers`; it can also include an optional fallback `pin` and optional `name`. Runtime greetings resolve the Home Assistant user display name from `ha_user_id` when available. The optional configured `name` is only a fallback when Home Assistant user lookup fails. Caller Access stores admin-managed caller records in `/share/twilio_voice_assistant/callers.json` and merges them with add-on config `callers` at runtime. The legacy `allowed_callers` list and old PIN map still work during migration.
 
-Legacy `allowed_callers` single-number entries using `phone_number` still work. `name` is optional there too, but new configuration should use `callers`.
+Legacy migration-only `allowed_callers` single-number entries using `phone_number` still work. `name` is optional there too, but normal configuration should use Caller Access.
 
 ```yaml
 allowed_callers:
@@ -160,14 +160,14 @@ allowed_callers:
     ha_user_id: 0123456789abcdef0123456789abcdef
 ```
 
-PIN-only legacy auth:
+Legacy PIN-only auth:
 
 ```yaml
 auth_mode: pin
 pin_mode: dtmf
 ```
 
-Caller whitelist with PIN fallback using unified caller identity:
+Advanced/manual caller whitelist with PIN fallback using unified caller identity:
 
 ```yaml
 auth_mode: caller_whitelist_or_pin
@@ -181,13 +181,13 @@ callers:
     pin: "1234"
 ```
 
-Deprecated fallback bridge mode:
+Deprecated Gather fallback bridge mode:
 
 ```yaml
 voice_bridge_mode: gather
 ```
 
-Conversation Relay prototype:
+Preferred Conversation Relay bridge mode:
 
 ```yaml
 voice_bridge_mode: conversation_relay

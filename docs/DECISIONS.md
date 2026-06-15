@@ -280,7 +280,7 @@ callers:
 - Full caller numbers must not be logged by default.
 - Caller ID whitelist matching is convenient but not strong authentication by itself.
 - `auth_mode: pin` remains the backward-compatible default for existing add-on installs.
-- Twilio webhook signature validation and Conversation Relay websocket validation remain required before production use.
+- Twilio webhook signature validation and Conversation Relay websocket session validation are part of the normal product path.
 
 Implementation note:
 
@@ -380,12 +380,13 @@ Conversation Relay TTS settings are separate from Home Assistant TTS settings. H
 
 **Status:** Accepted
 
-Version `1.4.1` adds the first security hardening layer around the public Conversation Relay path.
+Version `1.4.1` added the first security hardening layer around the public Conversation Relay path. Version `1.4.2` makes that secure path the production-default posture.
 
 Accepted behavior:
 
-- `validate_twilio_signatures` defaults to `true`.
+- `allow_unsigned_twilio_requests_for_dev` defaults to `false`.
 - `/incoming_call`, `/check_pin`, and `/start_session` validate `X-Twilio-Signature` using `TWILIO_AUTH_TOKEN`.
+- Unsigned Twilio requests are accepted only when the explicit development-only bypass is enabled.
 - Validation reconstructs the URL from `PUBLIC_BASE_URL`, request path, and query string, then includes form parameters in the signature check.
 - Invalid signatures are rejected with a safe HTTP error.
 - After caller whitelist or PIN authentication, the app creates a short-lived signed session token.
@@ -400,7 +401,7 @@ The session token is stateless and HMAC-signed with a secret derived from `TWILI
 
 Local testing:
 
-Controlled unsigned local tests can temporarily set `validate_twilio_signatures: false`. Production should keep the default `true`.
+Controlled unsigned local tests can temporarily set `allow_unsigned_twilio_requests_for_dev: true`. Public or production-like endpoints should never enable this bypass.
 
 ## Decision 017: Treat ARCHITECTURE.md as the stable guardrail document
 
@@ -429,7 +430,7 @@ Consequences:
 5. Should the HACS integration and add-on remain in the same repository or eventually split?
 6. If HACS work returns later, what entities should the integration expose by default?
 7. If HACS work returns later, how should secrets be shared between the integration and bridge service/add-on?
-8. Should Conversation Relay websocket signature validation be implemented before broader testing or before production release?
+8. Should the stateless session token gain one-time-use replay protection after the short-TTL hardening proves stable?
 9. What is the final storage model for caller whitelist configuration in the add-on and future HACS integration?
 10. What would a future HACS options flow need to manage caller whitelist entries cleanly without overloading the add-on admin page?
 

@@ -42,9 +42,9 @@ CONVERSATION_RELAY_TRANSCRIPTION_PROVIDER = os.getenv(
 CONVERSATION_RELAY_LANGUAGE = os.getenv(
     "CONVERSATION_RELAY_LANGUAGE", "en-US"
 ).strip()
-VALIDATE_TWILIO_SIGNATURES = (
-    os.getenv("VALIDATE_TWILIO_SIGNATURES", "true").strip().lower()
-    not in {"0", "false", "no", "off"}
+ALLOW_UNSIGNED_TWILIO_REQUESTS_FOR_DEV = (
+    os.getenv("ALLOW_UNSIGNED_TWILIO_REQUESTS_FOR_DEV", "false").strip().lower()
+    in {"1", "true", "yes", "on"}
 )
 SESSION_TOKEN_TTL_SECONDS = 120
 
@@ -159,11 +159,11 @@ async def validate_twilio_http_request(
     call_sid: str | None = None,
 ):
     """Validate Twilio webhook signatures without logging secrets or PINs."""
-    if not VALIDATE_TWILIO_SIGNATURES:
+    if ALLOW_UNSIGNED_TWILIO_REQUESTS_FOR_DEV:
         log_timing(
             "twilio_signature_validation",
             route=route,
-            result="disabled",
+            result="dev_bypass",
             call_sid=call_sid,
         )
         return
@@ -448,7 +448,7 @@ def log_startup_configuration():
         "startup_configuration",
         auth_mode=AUTH_MODE,
         unknown_caller_policy=UNKNOWN_CALLER_POLICY,
-        voice_bridge="conversation_relay_only",
+        runtime_mode="conversation_relay_only",
         pin_fallback="dtmf",
         conversation_relay_tts_provider=CONVERSATION_RELAY_TTS_PROVIDER,
         conversation_relay_transcription_provider=(
@@ -459,17 +459,22 @@ def log_startup_configuration():
         caller_identities_count=CALLER_IDENTITY_RECORD_COUNT,
         allowed_callers_count=ALLOWED_CALLER_RECORD_COUNT,
         local_audio_pipeline="removed",
-        twilio_signature_validation_enabled=VALIDATE_TWILIO_SIGNATURES,
+        twilio_signature_validation_enabled=(
+            not ALLOW_UNSIGNED_TWILIO_REQUESTS_FOR_DEV
+        ),
+        dev_unsigned_request_bypass_enabled=(
+            ALLOW_UNSIGNED_TWILIO_REQUESTS_FOR_DEV
+        ),
         session_token_ttl_seconds=SESSION_TOKEN_TTL_SECONDS,
     )
     print(
-        "INFO: Conversation Relay-only mode selected; Gather, speech PIN, "
-        "Whisper, and local audio-file handling are removed."
+        "INFO: Secure Conversation Relay-only mode selected; "
+        "local audio-file handling is removed."
     )
-    if not VALIDATE_TWILIO_SIGNATURES:
+    if ALLOW_UNSIGNED_TWILIO_REQUESTS_FOR_DEV:
         print(
-            "WARNING: Twilio HTTP signature validation is disabled. "
-            "Enable validate_twilio_signatures before production use."
+            "WARNING: Development-only unsigned Twilio request bypass is enabled. "
+            "Do not expose public endpoints with this setting enabled."
         )
 
 
@@ -1037,7 +1042,7 @@ async def handle_pin_digits(digits: str, call_sid: str | None = None):
             "pin_accepted",
             call_sid=call_sid,
             user_id=user_id,
-            bridge_mode="conversation_relay",
+            runtime_mode="conversation_relay",
         )
         return twiml_response(f"""
         <Response>
@@ -1783,7 +1788,7 @@ async def incoming_call(
     log_timing(
         "inbound_call_received",
         call_sid=CallSid,
-        bridge_mode="conversation_relay",
+        runtime_mode="conversation_relay",
         auth_mode=AUTH_MODE,
         caller=masked_from,
     )
@@ -1891,8 +1896,8 @@ async def start_session(
             call_sid=call_sid,
         )
         log_timing(
-            "bridge_mode_selected",
-            bridge_mode="conversation_relay",
+            "conversation_relay_session_started",
+            runtime_mode="conversation_relay",
             user_id=user_id,
         )
         log_timing(
@@ -1923,9 +1928,9 @@ async def start_session(
 @app.websocket("/conversation_relay")
 async def conversation_relay_websocket(websocket: WebSocket):
     # Preferred v2 path: receive final text transcripts, call HA Conversation,
-    # and return response text without local TTS/audio file handling.
+    # and return response text without local media file handling.
     await websocket.accept()
-    log_timing("websocket_connected", bridge_mode="conversation_relay")
+    log_timing("websocket_connected", runtime_mode="conversation_relay")
 
     user_id = "unknown"
     user_name = "unknown"

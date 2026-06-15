@@ -66,8 +66,8 @@ os.environ['CONVERSATION_RELAY_TRANSCRIPTION_PROVIDER'] = str(
 os.environ['CONVERSATION_RELAY_LANGUAGE'] = str(
     config.get('conversation_relay_language', 'en-US')
 ).strip()
-os.environ['VALIDATE_TWILIO_SIGNATURES'] = str(
-    config.get('validate_twilio_signatures', True)
+os.environ['ALLOW_UNSIGNED_TWILIO_REQUESTS_FOR_DEV'] = str(
+    config.get('allow_unsigned_twilio_requests_for_dev', False)
 ).strip().lower()
 
 # Handle pin_map - could be dict or JSON string

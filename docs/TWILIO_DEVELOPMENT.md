@@ -19,7 +19,7 @@ PIN authentication remains available as a fallback and legacy compatibility path
 
 Caller ID whitelist matching is useful for routing known callers, but it is not strong authentication by itself. Production deployments still require Twilio webhook signature validation, narrow public routing, careful logging, and a clear policy for unknown callers.
 
-Version `1.4.1` enables Twilio HTTP request signature validation by default for `/incoming_call`, `/check_pin`, and `/start_session`. It also protects `/start_session` and Conversation Relay websocket setup with a short-lived signed session token generated only after caller whitelist or PIN authentication.
+Version `1.4.2` makes secure Conversation Relay the only normal product path. Twilio HTTP request signature validation is enabled for `/incoming_call`, `/check_pin`, and `/start_session` unless the explicit development-only unsigned request bypass is enabled. `/start_session` and Conversation Relay websocket setup are protected with a short-lived signed session token generated only after caller whitelist or PIN authentication.
 
 ## Twilio Responsibilities
 
@@ -171,7 +171,7 @@ conversation_relay_tts_provider: ElevenLabs
 conversation_relay_voice: h8eW5xfRUGVJrZhAFxqK
 conversation_relay_transcription_provider: Deepgram
 conversation_relay_language: en-US
-validate_twilio_signatures: true
+allow_unsigned_twilio_requests_for_dev: false
 ```
 
 Use `conversation_relay_voice: h8eW5xfRUGVJrZhAFxqK` for the confirmed Elspeth ElevenLabs voice. Leave `conversation_relay_voice` empty only when Twilio should use its provider default. The value `default` is treated as blank and the app omits the `voice` attribute from Conversation Relay TwiML.
@@ -181,7 +181,7 @@ Use `conversation_relay_voice: h8eW5xfRUGVJrZhAFxqK` for the confirmed Elspeth E
 - For the validated v2 path, Conversation Relay `ttsProvider` should be `ElevenLabs` and `voice` should be `h8eW5xfRUGVJrZhAFxqK`.
 - Conversation Relay does not load Whisper and avoids local audio files plus local STT/TTS processing.
 - Whisper is no longer installed by the add-on.
-- `validate_twilio_signatures` defaults to `true`. Set it to `false` only for controlled local tests where requests are not signed by Twilio; production should keep it enabled.
+- `allow_unsigned_twilio_requests_for_dev` defaults to `false`. Set it to `true` only for controlled local tests where requests are not signed by Twilio. Never enable it on exposed/public endpoints.
 
 The add-on schema accepts `auth_mode`, `unknown_caller_policy`, `callers`, and legacy `allowed_callers` from `twilio_voice_assistant/config.json`. The preferred caller shape is one Home Assistant user ID with a `phone_numbers` list and optional fallback `pin` in `callers`; `name` is optional. The legacy `allowed_callers[*].phone_number` single-value shape remains supported for backward compatibility, and `allowed_callers[*].name` is optional so saved options are not blocked during migration. Caller Access is the preferred admin model for new entries.
 
@@ -463,7 +463,7 @@ Minimum Twilio-side tests:
 | `conversation_relay` | Websocket connects | Logs include `websocket_connected`. |
 | `conversation_relay` | Final prompt arrives | Logs include `transcript_text_received` and Home Assistant request timing. |
 | `conversation_relay` | Home Assistant responds | App sends a `text` message back to Twilio with `last: true`. |
-| Startup | Conversation Relay-only runtime | Startup logs say Gather, speech PIN, Whisper, and local audio-file handling are removed. |
+| Startup | Conversation Relay-only runtime | Startup logs say secure Conversation Relay-only mode is selected and local audio-file handling is removed. |
 | Removed routes | `/process_command` or `/audio/*` | Routes are not documented as public endpoints and are no longer mounted. |
 
 ## Useful Logs
@@ -479,7 +479,7 @@ unknown_caller_rejected
 unknown_caller_pin_fallback
 pin_prompt_sent
 pin_accepted
-bridge_mode_selected
+conversation_relay_session_started
 conversation_relay_twiml_returned
 websocket_connected
 transcript_text_received
@@ -506,7 +506,7 @@ If signature validation fails:
 - Confirm the Twilio phone number webhook uses `POST`.
 - Confirm the reverse proxy preserves the path and query string.
 - Confirm `twilio_auth_token` matches the active Twilio auth token.
-- For controlled local unsigned requests only, temporarily set `validate_twilio_signatures: false`.
+- For controlled local unsigned requests only, temporarily set `allow_unsigned_twilio_requests_for_dev: true`.
 
 If known callers are not recognized:
 

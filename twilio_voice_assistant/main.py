@@ -5,6 +5,9 @@ from pydantic import BaseModel
 import httpx
 import websockets
 import asyncio
+import base64
+import hashlib
+import hmac
 import re
 import os
 import json
@@ -39,6 +42,11 @@ CONVERSATION_RELAY_TRANSCRIPTION_PROVIDER = os.getenv(
 CONVERSATION_RELAY_LANGUAGE = os.getenv(
     "CONVERSATION_RELAY_LANGUAGE", "en-US"
 ).strip()
+VALIDATE_TWILIO_SIGNATURES = (
+    os.getenv("VALIDATE_TWILIO_SIGNATURES", "true").strip().lower()
+    not in {"0", "false", "no", "off"}
+)
+SESSION_TOKEN_TTL_SECONDS = 120
 
 SUPPORTED_AUTH_MODES = {
     "caller_whitelist",
@@ -113,6 +121,131 @@ def log_timing(event: str, **fields):
 def debug_log(event: str, **fields):
     if DEBUG:
         print("DEBUG " + json.dumps({"event": event, **fields}, sort_keys=True))
+
+
+def base64url_encode(data: bytes) -> str:
+    return base64.urlsafe_b64encode(data).decode("ascii").rstrip("=")
+
+
+def base64url_decode(value: str) -> bytes:
+    padding = "=" * (-len(value) % 4)
+    return base64.urlsafe_b64decode(value + padding)
+
+
+def twilio_public_url(request: Request) -> str:
+    query = request.url.query
+    url = f"{PUBLIC_BASE_URL}{request.url.path}"
+    if query:
+        url = f"{url}?{query}"
+    return url
+
+
+def compute_twilio_signature(url: str, params: dict[str, str]) -> str:
+    signed_data = url + "".join(
+        f"{key}{params[key]}"
+        for key in sorted(params)
+    )
+    digest = hmac.new(
+        TWILIO_AUTH_TOKEN.encode("utf-8"),
+        signed_data.encode("utf-8"),
+        hashlib.sha1,
+    ).digest()
+    return base64.b64encode(digest).decode("ascii")
+
+
+async def validate_twilio_http_request(
+    request: Request,
+    route: str,
+    call_sid: str | None = None,
+):
+    """Validate Twilio webhook signatures without logging secrets or PINs."""
+    if not VALIDATE_TWILIO_SIGNATURES:
+        log_timing(
+            "twilio_signature_validation",
+            route=route,
+            result="disabled",
+            call_sid=call_sid,
+        )
+        return
+
+    form = await request.form()
+    params = {
+        key: str(value)
+        for key, value in form.multi_items()
+    }
+    expected_signature = compute_twilio_signature(
+        twilio_public_url(request),
+        params,
+    )
+    received_signature = request.headers.get("x-twilio-signature", "")
+    is_valid = hmac.compare_digest(received_signature, expected_signature)
+    log_timing(
+        "twilio_signature_validation",
+        route=route,
+        result="valid" if is_valid else "invalid",
+        call_sid=call_sid or params.get("CallSid"),
+    )
+    if not is_valid:
+        raise HTTPException(status_code=403, detail="Invalid Twilio signature")
+
+
+def create_session_token(
+    user_id: str,
+    user_name: str,
+    call_sid: str | None = None,
+) -> str:
+    payload = {
+        "user_id": user_id,
+        "user_name": user_name,
+        "created": int(time.time()),
+    }
+    if call_sid:
+        payload["call_sid"] = call_sid
+
+    payload_json = json.dumps(payload, separators=(",", ":"), sort_keys=True)
+    encoded_payload = base64url_encode(payload_json.encode("utf-8"))
+    signature = hmac.new(
+        TWILIO_AUTH_TOKEN.encode("utf-8"),
+        encoded_payload.encode("ascii"),
+        hashlib.sha256,
+    ).digest()
+    return f"{encoded_payload}.{base64url_encode(signature)}"
+
+
+def validate_session_token(token: str | None) -> tuple[dict | None, str | None]:
+    if not token or "." not in token:
+        return None, "missing"
+
+    encoded_payload, encoded_signature = token.split(".", 1)
+    expected_signature = hmac.new(
+        TWILIO_AUTH_TOKEN.encode("utf-8"),
+        encoded_payload.encode("ascii"),
+        hashlib.sha256,
+    ).digest()
+
+    try:
+        received_signature = base64url_decode(encoded_signature)
+    except Exception:
+        return None, "bad_signature_encoding"
+
+    if not hmac.compare_digest(received_signature, expected_signature):
+        return None, "bad_signature"
+
+    try:
+        payload = json.loads(base64url_decode(encoded_payload).decode("utf-8"))
+    except Exception:
+        return None, "bad_payload"
+
+    created = payload.get("created")
+    if not isinstance(created, int):
+        return None, "missing_created"
+    if time.time() - created > SESSION_TOKEN_TTL_SECONDS:
+        return None, "expired"
+
+    if not payload.get("user_id") or not payload.get("user_name"):
+        return None, "missing_identity"
+
+    return payload, None
 
 
 def mask_phone_number(phone_number: str | None) -> str:
@@ -326,13 +459,18 @@ def log_startup_configuration():
         caller_identities_count=CALLER_IDENTITY_RECORD_COUNT,
         allowed_callers_count=ALLOWED_CALLER_RECORD_COUNT,
         local_audio_pipeline="removed",
+        twilio_signature_validation_enabled=VALIDATE_TWILIO_SIGNATURES,
+        session_token_ttl_seconds=SESSION_TOKEN_TTL_SECONDS,
     )
     print(
         "INFO: Conversation Relay-only mode selected; Gather, speech PIN, "
         "Whisper, and local audio-file handling are removed."
     )
-    print("TODO: Add Twilio webhook signature validation before production use.")
-    print("TODO: Add Conversation Relay websocket validation before production use.")
+    if not VALIDATE_TWILIO_SIGNATURES:
+        print(
+            "WARNING: Twilio HTTP signature validation is disabled. "
+            "Enable validate_twilio_signatures before production use."
+        )
 
 
 @asynccontextmanager
@@ -671,17 +809,25 @@ def prompt_for_pin(call_sid: str | None = None):
     """)
 
 
-def redirect_to_start_session(user_id: str, user_name: str | None):
-    encoded_user_id = quote(user_id)
-    encoded_user_name = quote(user_name or user_id)
+def redirect_to_start_session(
+    user_id: str,
+    user_name: str | None,
+    call_sid: str | None = None,
+):
+    session_token = create_session_token(user_id, user_name or user_id, call_sid)
+    encoded_token = quote(session_token)
     return twiml_response(f"""
     <Response>
-        <Redirect>/start_session?user_id={encoded_user_id}&amp;user_name={encoded_user_name}</Redirect>
+        <Redirect>/start_session?session_token={encoded_token}</Redirect>
     </Response>
     """)
 
 
-def conversation_relay_twiml(user_id: str, user_name: str) -> str:
+def conversation_relay_twiml(
+    user_id: str,
+    user_name: str,
+    session_token: str,
+) -> str:
     # Preferred v2 path: text-only bridge with Twilio Conversation Relay.
     websocket_url = public_websocket_url("/conversation_relay")
     attrs = {
@@ -708,6 +854,7 @@ def conversation_relay_twiml(user_id: str, user_name: str) -> str:
                 <Parameter name="user_id" value="{escape(user_id, quote=True)}"/>
                 <Parameter name="user_name" value="{escape(user_name, quote=True)}"/>
                 <Parameter name="conversation_id" value="{escape(conversation_id, quote=True)}"/>
+                <Parameter name="session_token" value="{escape(session_token, quote=True)}"/>
             </ConversationRelay>
         </Connect>
     </Response>
@@ -884,8 +1031,8 @@ async def handle_pin_digits(digits: str, call_sid: str | None = None):
         user_map = {user["id"]: user["name"] for user in users}
         user_id = pin_entry_user_id(pin_entry)
         user_name = pin_entry_user_name(pin_entry, user_map)
-        encoded_user_id = quote(user_id)
-        encoded_user_name = quote(user_name)
+        session_token = create_session_token(user_id, user_name, call_sid)
+        encoded_session_token = quote(session_token)
         log_timing(
             "pin_accepted",
             call_sid=call_sid,
@@ -895,7 +1042,7 @@ async def handle_pin_digits(digits: str, call_sid: str | None = None):
         return twiml_response(f"""
         <Response>
             <Say>Thank you. Connecting you now.</Say>
-            <Redirect>/start_session?user_id={encoded_user_id}&amp;user_name={encoded_user_name}</Redirect>
+            <Redirect>/start_session?session_token={encoded_session_token}</Redirect>
         </Response>
         """)
 
@@ -1621,10 +1768,16 @@ async def delete_caller_access(record_index: int, request: Request):
 # Twilio webhook endpoints
 @app.post("/incoming_call")
 async def incoming_call(
+    request: Request,
     From: str = Form(None),
     To: str = Form(None),
     CallSid: str = Form(None),
 ):
+    await validate_twilio_http_request(
+        request,
+        route="/incoming_call",
+        call_sid=CallSid,
+    )
     caller, normalized_from = find_allowed_caller(From)
     masked_from = mask_phone_number(normalized_from or From)
     log_timing(
@@ -1649,7 +1802,7 @@ async def incoming_call(
             caller=masked_from,
             user_id=caller["ha_user_id"],
         )
-        return redirect_to_start_session(caller["ha_user_id"], user_name)
+        return redirect_to_start_session(caller["ha_user_id"], user_name, CallSid)
 
     if (
         AUTH_MODE == "caller_whitelist_or_pin"
@@ -1672,6 +1825,7 @@ async def incoming_call(
 
 @app.post("/check_pin")
 async def check_pin(
+    request: Request,
     CallSid: str | None = Form(None),
     Digits: str | None = Form(None),
 ):
@@ -1679,6 +1833,11 @@ async def check_pin(
     PIN_MAP = load_effective_pin_map()
     
     try:
+        await validate_twilio_http_request(
+            request,
+            route="/check_pin",
+            call_sid=CallSid,
+        )
         if Digits:
             return await handle_pin_digits(Digits, call_sid=CallSid)
 
@@ -1689,6 +1848,8 @@ async def check_pin(
         </Response>
         """)
 
+    except HTTPException:
+        raise
     except Exception:
         print("Exception in check_pin:")
         traceback.print_exc()
@@ -1702,21 +1863,33 @@ async def check_pin(
 
 @app.api_route("/start_session", methods=["GET", "POST"])
 async def start_session(
-    user_id: str | None = None,
-    user_name: str | None = None,
-    user: str | None = None,
+    request: Request,
+    session_token: str | None = None,
 ):
     try:
-        # user is kept for compatibility with sessions started by older redirects.
-        user_id = user_id or user
-        if not user_id:
-            return twiml_response("""
-            <Response>
-                <Say>Sorry, there was a problem identifying your user.</Say>
-                <Hangup/>
-            </Response>
-            """)
-        user_name = user_name or user_id
+        await validate_twilio_http_request(
+            request,
+            route="/start_session",
+        )
+        session_payload, token_error = validate_session_token(session_token)
+        if token_error or not session_payload:
+            log_timing(
+                "session_token_validation",
+                route="/start_session",
+                result="invalid",
+                reason=token_error,
+            )
+            raise HTTPException(status_code=403, detail="Invalid session")
+
+        user_id = session_payload["user_id"]
+        user_name = session_payload["user_name"]
+        call_sid = session_payload.get("call_sid")
+        log_timing(
+            "session_token_validation",
+            route="/start_session",
+            result="valid",
+            call_sid=call_sid,
+        )
         log_timing(
             "bridge_mode_selected",
             bridge_mode="conversation_relay",
@@ -1730,8 +1903,12 @@ async def start_session(
             language=CONVERSATION_RELAY_LANGUAGE,
             conversation_relay_voice_configured=bool(CONVERSATION_RELAY_VOICE),
         )
-        return twiml_response(conversation_relay_twiml(user_id, user_name))
+        return twiml_response(
+            conversation_relay_twiml(user_id, user_name, session_token)
+        )
 
+    except HTTPException:
+        raise
     except Exception:
         print("Exception in start_session:")
         traceback.print_exc()
@@ -1753,6 +1930,7 @@ async def conversation_relay_websocket(websocket: WebSocket):
     user_id = "unknown"
     user_name = "unknown"
     conversation_id = None
+    session_valid = False
 
     try:
         while True:
@@ -1768,11 +1946,34 @@ async def conversation_relay_websocket(websocket: WebSocket):
 
             if message_type == "setup":
                 custom_parameters = message.get("customParameters") or {}
-                user_id = custom_parameters.get("user_id") or user_id
-                user_name = custom_parameters.get("user_name") or user_name
+                session_token = custom_parameters.get("session_token")
+                session_payload, token_error = validate_session_token(session_token)
+                if token_error or not session_payload:
+                    log_timing(
+                        "session_token_validation",
+                        route="/conversation_relay",
+                        result="invalid",
+                        reason=token_error,
+                    )
+                    await websocket.send_text(json.dumps({
+                        "type": "error",
+                        "message": "Invalid session.",
+                    }))
+                    await websocket.close(code=1008)
+                    return
+
+                user_id = session_payload["user_id"]
+                user_name = session_payload["user_name"]
                 conversation_id = (
                     custom_parameters.get("conversation_id")
                     or f"twilio_{user_id}"
+                )
+                session_valid = True
+                log_timing(
+                    "session_token_validation",
+                    route="/conversation_relay",
+                    result="valid",
+                    call_sid=session_payload.get("call_sid"),
                 )
                 debug_log(
                     "conversation_relay_setup",
@@ -1782,6 +1983,11 @@ async def conversation_relay_websocket(websocket: WebSocket):
                 continue
 
             if message_type == "prompt":
+                if not session_valid:
+                    debug_log("conversation_relay_prompt_before_valid_session")
+                    await websocket.close(code=1008)
+                    return
+
                 # Twilio Conversation Relay currently sends caller transcripts as
                 # prompt messages with voicePrompt and last fields. Keep this
                 # parser narrow and logged because the prototype schema may evolve.

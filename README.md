@@ -6,6 +6,8 @@ This Home Assistant add-on receives incoming Twilio calls, authenticates known c
 
 The current product path is Conversation Relay only. The v2.0.0 target architecture is documented in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): external voice services handle STT/TTS and Home Assistant Conversation remains the assistant brain. Version `1.4.0` removes the deprecated Gather/audio-file rollback path, speech PIN mode, local Whisper, and local generated TTS audio files from the call path.
 
+Version `1.4.1` adds security hardening for the public Twilio path: Twilio HTTP webhook signature validation is enabled by default, `/start_session` requires a short-lived signed session token, and the Conversation Relay websocket setup validates the same session token before trusting user metadata.
+
 ## Requirements
 
 Before installing, make sure you have:
@@ -107,6 +109,7 @@ Open the add-on configuration page in Home Assistant and set:
 - `conversation_relay_voice`: Optional Conversation Relay voice identifier.
 - `conversation_relay_transcription_provider`: Defaults to `Deepgram`.
 - `conversation_relay_language`: Defaults to `en-US`.
+- `validate_twilio_signatures`: Defaults to `true`. Keep enabled for production. Disable only for controlled local testing where requests are not signed by Twilio.
 - `debug`: Optional extra logging.
 
 Start the add-on after saving the configuration.
@@ -153,6 +156,9 @@ Legacy `allowed_callers` parsing and separate PIN map loading remain only for mi
 ## Notes
 
 - Rotate your Twilio auth token if it is ever pasted into logs, screenshots, chat, or documentation.
+- Twilio signature validation is enabled by default for `/incoming_call`, `/check_pin`, and `/start_session`.
+- `/start_session` is protected by a short-lived signed session token generated only after caller whitelist or PIN authentication.
+- Conversation Relay websocket setup validates the same session token before trusting `user_id` or `user_name` custom parameters.
 - Version `1.4.0` is the Conversation Relay-only baseline: Caller Access authentication, DTMF PIN fallback, Home Assistant Conversation text bridge, and ElevenLabs through Twilio Conversation Relay.
 - Caller whitelist authentication is the preferred v2 path. DTMF PIN authentication remains fallback behavior.
 - Conversation Relay is the only supported voice bridge. After caller whitelist or PIN authentication, it returns `<Connect><ConversationRelay>` TwiML and expects Twilio to connect to the add-on websocket at `/conversation_relay`.

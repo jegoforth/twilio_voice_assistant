@@ -19,6 +19,8 @@ PIN authentication remains available as a fallback and legacy compatibility path
 
 Caller ID whitelist matching is useful for routing known callers, but it is not strong authentication by itself. Production deployments still require Twilio webhook signature validation, narrow public routing, careful logging, and a clear policy for unknown callers.
 
+Version `1.4.1` enables Twilio HTTP request signature validation by default for `/incoming_call`, `/check_pin`, and `/start_session`. It also protects `/start_session` and Conversation Relay websocket setup with a short-lived signed session token generated only after caller whitelist or PIN authentication.
+
 ## Twilio Responsibilities
 
 Twilio is responsible for:
@@ -169,6 +171,7 @@ conversation_relay_tts_provider: ElevenLabs
 conversation_relay_voice: h8eW5xfRUGVJrZhAFxqK
 conversation_relay_transcription_provider: Deepgram
 conversation_relay_language: en-US
+validate_twilio_signatures: true
 ```
 
 Use `conversation_relay_voice: h8eW5xfRUGVJrZhAFxqK` for the confirmed Elspeth ElevenLabs voice. Leave `conversation_relay_voice` empty only when Twilio should use its provider default. The value `default` is treated as blank and the app omits the `voice` attribute from Conversation Relay TwiML.
@@ -178,6 +181,7 @@ Use `conversation_relay_voice: h8eW5xfRUGVJrZhAFxqK` for the confirmed Elspeth E
 - For the validated v2 path, Conversation Relay `ttsProvider` should be `ElevenLabs` and `voice` should be `h8eW5xfRUGVJrZhAFxqK`.
 - Conversation Relay does not load Whisper and avoids local audio files plus local STT/TTS processing.
 - Whisper is no longer installed by the add-on.
+- `validate_twilio_signatures` defaults to `true`. Set it to `false` only for controlled local tests where requests are not signed by Twilio; production should keep it enabled.
 
 The add-on schema accepts `auth_mode`, `unknown_caller_policy`, `callers`, and legacy `allowed_callers` from `twilio_voice_assistant/config.json`. The preferred caller shape is one Home Assistant user ID with a `phone_numbers` list and optional fallback `pin` in `callers`; `name` is optional. The legacy `allowed_callers[*].phone_number` single-value shape remains supported for backward compatibility, and `allowed_callers[*].name` is optional so saved options are not blocked during migration. Caller Access is the preferred admin model for new entries.
 
@@ -207,7 +211,9 @@ Twilio call
   -> app reads From
   -> caller whitelist match
   -> map to ha_user_id
+  -> signed session token
   -> /start_session
+  -> token validation
   -> Conversation Relay
 ```
 
@@ -230,7 +236,9 @@ Twilio call
   -> no caller whitelist match
   -> PIN prompt
   -> /check_pin
+  -> signed session token
   -> /start_session
+  -> token validation
   -> Conversation Relay
 ```
 
@@ -241,7 +249,9 @@ Twilio call
   -> /incoming_call
   -> PIN prompt
   -> /check_pin
+  -> signed session token
   -> /start_session
+  -> token validation
   -> Conversation Relay
 ```
 
@@ -323,6 +333,8 @@ Twilio call
 
 The add-on should return Conversation Relay TwiML only after the caller is authenticated. The websocket URL is derived from `public_base_url` by converting `https://` to `wss://`.
 
+`/start_session` is not an open user-ID endpoint. After caller whitelist or PIN authentication, the app redirects Twilio to `/start_session` with a short-lived signed `session_token`. The token includes `user_id`, `user_name`, creation time, and `CallSid` when available. `/start_session` validates the token before returning Conversation Relay TwiML and passes the same token to Conversation Relay as a custom parameter.
+
 Current generated TwiML shape:
 
 ```xml
@@ -338,6 +350,7 @@ Current generated TwiML shape:
       <Parameter name="user_id" value="..."/>
       <Parameter name="user_name" value="..."/>
       <Parameter name="conversation_id" value="twilio_..."/>
+      <Parameter name="session_token" value="..."/>
     </ConversationRelay>
   </Connect>
 </Response>
@@ -359,7 +372,7 @@ wss://YOUR_PUBLIC_DOMAIN/conversation_relay
 
 The prototype expects these incoming message types:
 
-- `setup`: used to read custom parameters from the TwiML.
+- `setup`: validates `session_token` from TwiML custom parameters before trusting session metadata.
 - `prompt`: used for caller transcripts.
 - `dtmf`: logged/ignored for now.
 - `interrupt`: logged/ignored for now.
@@ -390,8 +403,6 @@ The app sends response text back to Twilio as a Conversation Relay text token me
 ```
 
 Do not add local TTS generation to this path. Conversation Relay mode should not write caller audio, generated TTS audio, transcripts, or response text to disk.
-
-TODO: Add and document Conversation Relay websocket validation before production use.
 
 ## Provider Notes
 
@@ -446,6 +457,9 @@ Minimum Twilio-side tests:
 | PIN fallback | Bad PIN | Twilio redirects to `/incoming_call` or reprompts according to the configured policy. |
 | `conversation_relay` | Known caller | `/start_session` returns `<Connect><ConversationRelay>`. |
 | `conversation_relay` | PIN fallback caller | Conversation Relay starts only after PIN validation. |
+| Security | Unsigned webhook with validation enabled | `/incoming_call`, `/check_pin`, and `/start_session` reject the request. |
+| Security | Manual `/start_session` without token | Request is rejected. |
+| Security | Conversation Relay setup without token | Websocket closes without accepting user metadata. |
 | `conversation_relay` | Websocket connects | Logs include `websocket_connected`. |
 | `conversation_relay` | Final prompt arrives | Logs include `transcript_text_received` and Home Assistant request timing. |
 | `conversation_relay` | Home Assistant responds | App sends a `text` message back to Twilio with `last: true`. |
@@ -457,6 +471,8 @@ Minimum Twilio-side tests:
 The app emits structured timing logs prefixed with `TIMING`. For Twilio-side development, watch for:
 
 ```text
+twilio_signature_validation
+session_token_validation
 inbound_call_received
 caller_whitelist_matched
 unknown_caller_rejected
@@ -483,6 +499,14 @@ If Twilio never reaches the app:
 - Verify the reverse proxy forwards `POST` requests.
 - Verify the public route is not protected by Home Assistant Ingress authentication.
 - Check Twilio debugger and call logs for webhook delivery errors.
+
+If signature validation fails:
+
+- Confirm `public_base_url` exactly matches the public URL Twilio uses, including scheme and host.
+- Confirm the Twilio phone number webhook uses `POST`.
+- Confirm the reverse proxy preserves the path and query string.
+- Confirm `twilio_auth_token` matches the active Twilio auth token.
+- For controlled local unsigned requests only, temporarily set `validate_twilio_signatures: false`.
 
 If known callers are not recognized:
 
@@ -530,6 +554,7 @@ If Home Assistant responds but the caller hears nothing in Conversation Relay mo
 - Do not log full caller numbers by default.
 - Do not log `twilio_auth_token`, `SUPERVISOR_TOKEN`, PIN values, full transcripts, or full Home Assistant responses.
 - Caller ID whitelist matching is not strong authentication by itself. Caller ID can be spoofed or forwarded in ways that weaken trust.
-- Twilio webhook signature validation is required before production use.
-- Conversation Relay websocket validation is required before production use.
+- Twilio webhook signature validation is enabled by default and should stay enabled in production.
+- `/start_session` requires a short-lived signed session token and should reject manual requests without one.
+- Conversation Relay websocket setup validates the same session token before trusting user identity parameters.
 - Keep `/admin` and `/admin/api/*` private behind Home Assistant Ingress.

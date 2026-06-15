@@ -4,6 +4,10 @@ Use this checklist for the next v2.0.0 validation pass. Keep test logs free of f
 
 ## Latest Validated Results
 
+- Version `1.4.1` is the first security hardening baseline.
+- Twilio HTTP signature validation is enabled by default for `/incoming_call`, `/check_pin`, and `/start_session`.
+- `/start_session` is protected by a short-lived signed session token.
+- Conversation Relay websocket setup validates the same session token before trusting custom user metadata.
 - Version `1.4.0` is the Conversation Relay-only baseline.
 - Gather, speech PIN, local Whisper, local generated TTS audio files, `/process_command`, and `/audio/*` have been removed from the runtime.
 - Normal public routes are `/incoming_call`, `/check_pin`, `/start_session`, `/conversation_relay`, and `/conversation_relay/status`.
@@ -78,6 +82,8 @@ Use this checklist for the next v2.0.0 validation pass. Keep test logs free of f
   - `caller_identities_count`
   - `allowed_callers_count`
   - `local_audio_pipeline: removed`
+  - `twilio_signature_validation_enabled`
+  - `session_token_ttl_seconds`
 - Startup logs do not include full caller phone numbers.
 - Startup logs state that Conversation Relay-only mode is selected and Gather, speech PIN, Whisper, and local audio-file handling are removed.
 
@@ -134,6 +140,8 @@ allowed_callers:
 - A known caller configured with legacy `phone_number` still reaches `/start_session`.
 - Tested successfully: an allowed caller matched the config, skipped PIN, and entered the conversation flow.
 - Caller numbers are masked in logs.
+- Twilio signature validation can be disabled only for controlled local tests with `validate_twilio_signatures: false`; production should keep the default `true`.
+- Manual `/start_session` requests without a valid session token are rejected.
 
 ## Caller Access Admin UI
 
@@ -167,6 +175,9 @@ allowed_callers:
 - Conversation Relay still uses ElevenLabs Elspeth voice.
 - End-call handling still works.
 - `/start_session` returns Conversation Relay TwiML only after caller whitelist match or successful PIN validation.
+- `/start_session` rejects requests without a valid short-lived session token.
+- Conversation Relay websocket setup validates the session token before accepting transcript messages.
+- Unsigned `/incoming_call`, `/check_pin`, and `/start_session` requests are rejected when `validate_twilio_signatures: true`.
 - Known failure to avoid: `block_elevenlabs` is a Home Assistant TTS engine ID and must not be used as Conversation Relay `ttsProvider`.
 - Conversation Relay `ttsProvider` defaults to `ElevenLabs` and is limited to `ElevenLabs`, `Google`, or `Amazon`.
 - Conversation Relay `ttsProvider` should be `ElevenLabs`.
@@ -185,8 +196,14 @@ allowed_callers:
 - `voice_bridge_mode` is no longer a normal add-on option.
 - `pin_mode` is no longer a normal add-on option; PIN fallback is DTMF only.
 
-## Security TODOs Before Production
+## Security Validation
 
-- Add Twilio webhook signature validation.
-- Add Conversation Relay websocket validation.
-- Validate Twilio webhook and Conversation Relay websocket signatures before production.
+- Confirm startup logs show `twilio_signature_validation_enabled: true`.
+- Call from an allowed number and confirm it skips PIN and reaches Conversation Relay.
+- Call from an unlisted number and confirm DTMF PIN fallback works.
+- Confirm wrong PIN is rejected and correct PIN is accepted.
+- Confirm Conversation Relay websocket logs a valid session token validation event during setup.
+- Confirm end-call phrase still hangs up.
+- Attempt to hit `/start_session` manually without a valid token and confirm it is rejected.
+- If practical, send an unsigned `/incoming_call` request and confirm it is rejected when validation is enabled.
+- Keep `/admin` and `/admin/api/*` private behind Home Assistant Ingress.

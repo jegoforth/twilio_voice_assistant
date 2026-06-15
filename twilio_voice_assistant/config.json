@@ -1,6 +1,6 @@
 {
   "name": "Twilio Voice Assistant",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "slug": "twilio_voice_assistant",
   "description": "Twilio Conversation Relay webhook service with Caller Access authentication, DTMF PIN fallback, ElevenLabs voice support, and Home Assistant Conversation integration.",
   "arch": ["amd64", "aarch64"],
@@ -29,6 +29,7 @@
     "conversation_relay_voice": "",
     "conversation_relay_transcription_provider": "Deepgram",
     "conversation_relay_language": "en-US",
+    "validate_twilio_signatures": true,
     "debug": false
   },
   "schema": {
@@ -58,6 +59,7 @@
     "conversation_relay_voice": "str?",
     "conversation_relay_transcription_provider": "str?",
     "conversation_relay_language": "str?",
+    "validate_twilio_signatures": "bool?",
     "debug": "bool?"
   },
   "homeassistant_api": true,

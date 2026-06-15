@@ -370,11 +370,37 @@ Stable v2 baseline:
 
 The attempted inline allowed-caller management work was reverted/stopped. Caller Access supersedes it with a smaller, isolated UI that manages canonical caller records in `/share/twilio_voice_assistant/callers.json` without modifying Home Assistant add-on options directly. Future caller management can still move into a HACS options flow or separately designed Home Assistant-native UI.
 
-The next validation focus should be hardening Conversation Relay websocket validation, Twilio webhook signature validation, and interruption/barge-in behavior.
+The next validation focus should be interruption/barge-in behavior and broader production hardening.
 
 HA user IDs in `callers` or legacy `allowed_callers` should not include angle brackets. Use `5e738...`, not `<5e738...>`.
 
 Conversation Relay TTS settings are separate from Home Assistant TTS settings. Home Assistant TTS engine IDs such as `block_elevenlabs` must not be used as Conversation Relay `ttsProvider` values. The runtime now limits Conversation Relay providers to `ElevenLabs`, `Google`, or `Amazon`, falls back to `ElevenLabs` for invalid values, and omits `voice` when `conversation_relay_voice` is blank or `default`. For the validated v2 path, Conversation Relay `ttsProvider` should be `ElevenLabs` and `voice` should be `h8eW5xfRUGVJrZhAFxqK`.
+
+## Decision 019: Validate Twilio webhooks and signed Conversation Relay sessions
+
+**Status:** Accepted
+
+Version `1.4.1` adds the first security hardening layer around the public Conversation Relay path.
+
+Accepted behavior:
+
+- `validate_twilio_signatures` defaults to `true`.
+- `/incoming_call`, `/check_pin`, and `/start_session` validate `X-Twilio-Signature` using `TWILIO_AUTH_TOKEN`.
+- Validation reconstructs the URL from `PUBLIC_BASE_URL`, request path, and query string, then includes form parameters in the signature check.
+- Invalid signatures are rejected with a safe HTTP error.
+- After caller whitelist or PIN authentication, the app creates a short-lived signed session token.
+- `/start_session` validates the session token before returning Conversation Relay TwiML.
+- Conversation Relay TwiML includes the same session token as a custom parameter.
+- The websocket `setup` message validates the session token before trusting `user_id` or `user_name`.
+- Token values, signatures, auth tokens, PINs, full caller numbers, transcripts, and full Home Assistant responses must not be logged.
+
+Implementation tradeoff:
+
+The session token is stateless and HMAC-signed with a secret derived from `TWILIO_AUTH_TOKEN`. It expires quickly, currently 120 seconds. This is sufficient for phase 1 startup protection and avoids adding token storage, but it does not provide one-time-use replay protection within the short TTL.
+
+Local testing:
+
+Controlled unsigned local tests can temporarily set `validate_twilio_signatures: false`. Production should keep the default `true`.
 
 ## Decision 017: Treat ARCHITECTURE.md as the stable guardrail document
 

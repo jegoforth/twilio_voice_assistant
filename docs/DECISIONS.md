@@ -342,7 +342,7 @@ The repository-installed add-on starts successfully. The admin UI was restored a
 
 Caller Access validation: Caller Access web UI is working. Users were added through the web UI. A call from an allowed number skipped PIN and entered Conversation Relay as expected. A call from an unlisted number fell back to PIN as expected. Correct PIN was accepted and entered Conversation Relay as expected. Unified Caller Access is now the configuration path. Conversation Relay remains the preferred/default voice bridge.
 
-Conversation Relay mode was validated successfully. Conversation Relay uses ElevenLabs successfully with the confirmed Elspeth ElevenLabs voice ID `h8eW5xfRUGVJrZhAFxqK`. Conversation Relay sends caller transcript text to Home Assistant Conversation, Home Assistant Conversation returns a response, and the assistant verified something in the house correctly. The call ended correctly through the end-call handling. Conversation Relay latency is much faster than the previous Gather/TTS/audio-file path.
+Conversation Relay mode was validated successfully. Conversation Relay uses ElevenLabs successfully with a configured Elspeth voice ID. Conversation Relay sends caller transcript text to Home Assistant Conversation, Home Assistant Conversation returns a response, and the assistant verified something in the house correctly. The call ended correctly through the end-call handling. Conversation Relay latency is much faster than the previous Gather/TTS/audio-file path.
 
 Version `1.3.8` was validated as the stable unified-auth Conversation Relay baseline. Unified `callers` config works. Known caller phone numbers skip PIN and enter Conversation Relay. Unlisted callers fall back to PIN when configured. Wrong PIN is rejected, correct PIN is accepted, Conversation Relay remains the preferred/default voice bridge, and ElevenLabs Elspeth voice is working through Conversation Relay.
 
@@ -353,7 +353,7 @@ Stable v2 baseline:
 - Unknown caller PIN fallback works.
 - Wrong PIN rejection and correct PIN acceptance work.
 - Conversation Relay mode works end-to-end.
-- Conversation Relay uses ElevenLabs and the Elspeth voice ID `h8eW5xfRUGVJrZhAFxqK`.
+- Conversation Relay uses ElevenLabs and a configured Elspeth voice ID.
 - Conversation Relay sends caller transcript text to Home Assistant Conversation and receives response text successfully.
 - The assistant can verify house state through Home Assistant.
 - End-call handling works.
@@ -369,7 +369,7 @@ The next validation focus should be interruption/barge-in behavior and broader p
 
 HA user IDs should not include angle brackets. Use `5e738...`, not `<5e738...>`.
 
-Conversation Relay TTS settings are separate from Home Assistant TTS settings. Home Assistant TTS engine IDs such as `block_elevenlabs` must not be used as Conversation Relay `ttsProvider` values. The runtime now limits Conversation Relay providers to `ElevenLabs`, `Google`, or `Amazon`, falls back to `ElevenLabs` for invalid values, and omits `voice` when `conversation_relay_voice` is blank or `default`. For the validated v2 path, Conversation Relay `ttsProvider` should be `ElevenLabs` and `voice` should be `h8eW5xfRUGVJrZhAFxqK`.
+Conversation Relay TTS settings are separate from Home Assistant TTS settings. Home Assistant TTS engine IDs such as `block_elevenlabs` must not be used as Conversation Relay `ttsProvider` values. The runtime now limits Conversation Relay providers to `ElevenLabs`, `Google`, or `Amazon`, falls back to `ElevenLabs` for invalid values, and omits `voice` when `conversation_relay_voice` is blank or `default`.
 
 ## Decision 019: Validate Twilio webhooks and signed Conversation Relay sessions
 
@@ -450,6 +450,28 @@ Consequences:
 - The add-on options editor no longer exposes caller identity records.
 - Existing deployments that still have YAML `callers` must recreate those records through Caller Access before relying on caller whitelist or PIN fallback behavior.
 
+## Decision 022: Present the current design as the public beta product
+
+**Status:** Accepted
+
+Version `1.4.5` makes the public README describe the current validated product directly instead of presenting the private development migration history.
+
+Current public beta product surface:
+
+- Twilio Conversation Relay only.
+- Caller Access UI only for caller identity.
+- Optional DTMF PIN fallback.
+- Home Assistant Conversation text bridge.
+- ElevenLabs through Twilio Conversation Relay.
+- Twilio signature validation enabled by default.
+- Protected `/start_session`.
+- Protected `/conversation_relay` session setup.
+- No local STT/TTS audio pipeline.
+
+Rationale:
+
+New beta users are not migrating from the earlier private development paths. Setup documentation should prioritize what to install, expose, configure, and test now. Historical details belong in `CHANGELOG.md` and this decision log.
+
 ## Decision 017: Treat ARCHITECTURE.md as the stable guardrail document
 
 **Status:** Accepted
@@ -470,7 +492,7 @@ Consequences:
 
 ## Open questions
 
-1. What exact ElevenLabs voice ID should be used for the desired Elspeth voice in Conversation Relay?
+1. Which production Conversation Relay voice IDs should be recommended for new testers, if any?
 2. Does the active Twilio account support Conversation Relay and ElevenLabs TTS provider configuration?
 3. Can Conversation Relay provide the desired interruption/barge-in behavior?
 4. Can ElevenLabs Agent integration preserve Home Assistant as the source of truth for conversation and service execution?

@@ -5,20 +5,16 @@ Use this checklist for the current Conversation Relay-only add-on. Keep test log
 ## Latest Validated Results
 
 - Version `1.4.3` makes Caller Access the single source of truth for caller identity and fallback PINs.
-- Version `1.4.4` removes the remaining add-on YAML `callers` option.
 - Caller Access web UI is working.
 - Caller Access records in `/share/twilio_voice_assistant/callers.json` are the only caller identity source.
 - Optional DTMF fallback PINs are managed only on Caller Access records.
-- Legacy `allowed_callers` has been removed from add-on config and runtime parsing.
-- Separate legacy PIN-map storage, Legacy PIN Management UI, and `/admin/api/pins` have been removed.
 - Conversation Relay is the only supported voice bridge.
 - DTMF PIN fallback remains supported through Caller Access record PINs.
 - Twilio HTTP signature validation is enabled by default for `/incoming_call`, `/check_pin`, and `/start_session`.
 - `/start_session` is protected by a short-lived signed session token.
 - Conversation Relay websocket setup validates the same session token before trusting custom user metadata.
-- Gather, speech PIN, local Whisper, local generated TTS audio files, `/process_command`, and `/audio/*` have been removed from the runtime.
 - Normal public routes are `/incoming_call`, `/check_pin`, `/start_session`, `/conversation_relay`, and `/conversation_relay/status`.
-- Conversation Relay uses ElevenLabs successfully with the Elspeth voice ID `h8eW5xfRUGVJrZhAFxqK`.
+- Conversation Relay uses ElevenLabs successfully with a configured Conversation Relay voice ID.
 - Conversation Relay sends caller transcript text to Home Assistant Conversation and receives response text successfully.
 - End-call handling works.
 - Conversation Relay latency is much faster than the previous local audio-file path.
@@ -48,11 +44,9 @@ Use this checklist for the current Conversation Relay-only add-on. Keep test log
 ## Authentication
 
 - The active add-on manifest is `twilio_voice_assistant/config.json`.
-- The active schema no longer includes `callers`.
-- The active schema no longer includes `allowed_callers`.
 - Normal caller identity setup uses Caller Access in the web UI.
 - Fallback PINs are configured on Caller Access records.
-- HA user IDs should not include angle brackets. Use `5e738...`, not `<5e738...>`.
+- HA user IDs should not include angle brackets. Use the raw Home Assistant user ID value, not `<home_assistant_user_id>`.
 - `auth_mode: pin` prompts for DTMF PIN on `/incoming_call`.
 - `auth_mode: pin` reaches `/start_session` after a valid Caller Access PIN.
 - `auth_mode: caller_whitelist` rejects an unknown caller when `unknown_caller_policy: reject`.
@@ -75,9 +69,7 @@ Use this checklist for the current Conversation Relay-only add-on. Keep test log
 - Saved caller records show Home Assistant display names and masked phone numbers only.
 - Saved caller records show only `PIN set` or `No PIN`; PIN values are not displayed.
 - Deleting an admin-managed Caller Access record works.
-- Legacy PIN Management is not present.
-- `/admin/api/pins` is not present.
-- Normal validation should use Caller Access records, not add-on YAML caller records.
+- Normal validation should use Caller Access records.
 
 ## Normal Test Matrix
 
@@ -90,7 +82,7 @@ Use this checklist for the current Conversation Relay-only add-on. Keep test log
 - Wrong PIN is rejected.
 - Correct Caller Access PIN is accepted and starts Conversation Relay as the mapped Home Assistant user.
 - If no Caller Access PINs are configured, unknown caller PIN fallback fails safely.
-- Conversation Relay uses ElevenLabs Elspeth voice.
+- Conversation Relay uses the configured ElevenLabs voice.
 - End-call handling works.
 - `/start_session` returns Conversation Relay TwiML only after caller whitelist match or successful PIN validation.
 - `/start_session` rejects requests without a valid short-lived session token.
@@ -98,23 +90,11 @@ Use this checklist for the current Conversation Relay-only add-on. Keep test log
 - Unsigned `/incoming_call`, `/check_pin`, and `/start_session` requests are rejected when `allow_unsigned_twilio_requests_for_dev: false`.
 - Known failure to avoid: `block_elevenlabs` is a Home Assistant TTS engine ID and must not be used as Conversation Relay `ttsProvider`.
 - Conversation Relay `ttsProvider` should be `ElevenLabs`.
-- Conversation Relay `voice` should use `h8eW5xfRUGVJrZhAFxqK` for Elspeth.
+- Conversation Relay `voice` should use a voice ID that is valid for the active Twilio account and selected provider.
 - Conversation Relay TwiML omits `voice` when `conversation_relay_voice` is blank or `default`.
 - Conversation Relay websocket sends final transcript text to Home Assistant Conversation without local TTS generation.
 - Conversation Relay mode does not write caller audio, generated TTS audio, transient transcripts, or transient response text to disk.
-- Whisper is not imported, loaded, or installed by the add-on.
-
-## Removed Legacy Route Checks
-
-- `/process_command` is no longer a public route.
-- `/audio/*` is no longer mounted.
-- `voice_bridge_mode` is no longer an add-on option.
-- `pin_mode` is no longer an add-on option; PIN fallback is DTMF only.
-- `callers` is no longer an add-on option.
-- `allowed_callers` is no longer an add-on option.
-- Legacy PIN-map storage is no longer loaded.
-- Legacy PIN Management UI is removed.
-- `/admin/api/pins` routes are removed.
+- No local STT/TTS audio pipeline is initialized.
 
 ## Security Validation
 

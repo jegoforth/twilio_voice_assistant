@@ -1182,7 +1182,7 @@ async def admin_ui(request: Request):
                 </div>
                 <div class="form-group">
                     <label for="callerPhoneNumbers">Phone Numbers (one per line, E.164 preferred):</label>
-                    <textarea id="callerPhoneNumbers" placeholder="+15551234567&#10;+15559876543"></textarea>
+                    <textarea id="callerPhoneNumbers" placeholder="+1XXXXXXXXXX&#10;+1YYYYYYYYYY"></textarea>
                 </div>
                 <div class="form-group">
                     <label for="callerPin">Fallback PIN (optional, 4 digits):</label>

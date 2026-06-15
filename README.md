@@ -1,56 +1,64 @@
 # Twilio Voice Assistant
 
-Call a Twilio phone number and talk to your Home Assistant voice assistant from any allowed phone.
+Call a Twilio phone number and talk to your Home Assistant voice assistant.
 
-This Home Assistant add-on receives incoming Twilio calls, authenticates known callers through Caller Access, sends Conversation Relay transcript text to Home Assistant Assist / Conversation, and returns response text to Twilio for ElevenLabs speech playback.
+Twilio Voice Assistant is a Home Assistant add-on that receives Twilio Voice calls, authenticates callers through the Caller Access UI or optional DTMF PIN fallback, sends transcript text to Home Assistant Conversation, and returns response text through Twilio Conversation Relay using a configured voice provider such as ElevenLabs.
 
-The current product path is Conversation Relay only. The v2.0.0 target architecture is documented in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): external voice services handle STT/TTS and Home Assistant Conversation remains the assistant brain. Version `1.4.0` removes the deprecated Gather/audio-file rollback path, speech PIN mode, local Whisper, and local generated TTS audio files from the call path.
+The add-on is a text bridge. It does not run local STT/TTS, Whisper, Twilio Gather loops, or generated audio-file playback.
 
-Version `1.4.2` makes secure Conversation Relay the only normal product path: Twilio HTTP webhook signature validation is always on unless the explicit development-only unsigned request bypass is enabled, `/start_session` requires a short-lived signed session token, and the Conversation Relay websocket setup validates the same session token before trusting user metadata.
+## Current Beta Shape
 
-Version `1.4.3` makes Caller Access the single source of truth for caller identity and fallback PINs. Legacy `allowed_callers`, separate PIN-map storage, the old PIN admin UI, and `/admin/api/pins` have been removed.
+- Twilio Conversation Relay only.
+- Caller Access UI only for caller identity.
+- Optional DTMF PIN fallback.
+- Home Assistant Conversation as the assistant brain.
+- ElevenLabs voice through Twilio Conversation Relay.
+- Twilio webhook signature validation enabled by default.
+- Protected `/start_session` with short-lived signed session tokens.
+- Protected `/conversation_relay` websocket session setup.
+- No local audio files, no local Whisper, no local generated TTS files.
 
-Version `1.4.4` removes the remaining add-on YAML `callers` option. Caller Access records in `/share/twilio_voice_assistant/callers.json` are now the only caller identity and fallback PIN source.
+## Supported
+
+| Supported | Notes |
+| --- | --- |
+| Home Assistant OS / Supervised | Requires Supervisor add-ons. |
+| Twilio Voice webhook | Incoming call webhook points to `/incoming_call`. |
+| Twilio Conversation Relay | Used for STT event delivery and TTS playback. |
+| Caller Access UI | The only caller identity management surface. |
+| DTMF PIN fallback | Optional fallback for unknown callers. |
+| Home Assistant Conversation agents | The selected HA agent handles the request. |
+| ElevenLabs through Conversation Relay | Configure provider and voice in add-on options. |
+
+## Not Supported
+
+| Not supported | Notes |
+| --- | --- |
+| Home Assistant Core-only installs | Supervisor add-ons are required. |
+| Local Whisper | No local speech-to-text runtime is included. |
+| Twilio Gather command loop | Conversation Relay is the only bridge. |
+| Speech PIN | PIN fallback is DTMF only. |
+| Local generated TTS audio files | Speech playback is handled by Conversation Relay. |
+| Public admin access | `/admin` and `/admin/api/*` must stay private. |
+| Non-Twilio webhook callers | Public call routes expect Twilio request signatures. |
 
 ## Requirements
 
-Before installing, make sure you have:
-
-- Home Assistant OS or Home Assistant Supervised with add-ons available.
-- A working Home Assistant voice assistant setup, including:
-  - A configured conversation agent.
+- Home Assistant OS or Home Assistant Supervised.
+- A configured Home Assistant Conversation agent.
 - A Twilio account with:
   - An active phone number.
   - Account SID.
   - Auth token.
-- A secure public HTTPS URL that can reach the Twilio webhook and Conversation Relay websocket routes on this add-on.
-
-Twilio must be able to reach the webhook and Conversation Relay websocket routes from the public internet. Common options include:
-
-- Cloudflare Tunnel.
-- NGINX Proxy Manager.
-- A reverse proxy with a valid SSL certificate.
-- Another HTTPS tunnel/proxy that forwards selected paths to Home Assistant add-on port `8000`.
-
-Do not expose the add-on over plain HTTP. Twilio webhooks should use HTTPS.
-
-Do not expose the admin page publicly. The admin page is intended to be opened through Home Assistant Ingress, where Home Assistant handles authentication.
+  - Conversation Relay available on the account.
+- A public HTTPS URL that can forward the required Twilio routes to the add-on.
+- A Twilio Conversation Relay TTS provider/voice. ElevenLabs is the intended voice provider.
 
 ## Install
 
 ### Add To My Home Assistant
 
 [![Add repository to Home Assistant](https://my.home-assistant.io/badges/supervisor_add_addon_repository.svg)](https://my.home-assistant.io/redirect/supervisor_add_addon_repository/?repository_url=https%3A%2F%2Fgithub.com%2Fjegoforth%2Ftwilio_voice_assistant)
-
-If this repository is private, your Home Assistant Supervisor must be able to access it. Public repositories are the simplest option for normal add-on store installation.
-
-This repository is structured as a Home Assistant add-on repository. The installable add-on lives in:
-
-```text
-twilio_voice_assistant/
-```
-
-For local add-on development, copy or mount that folder under Home Assistant's `/addons` directory.
 
 ### Manual Install
 
@@ -66,24 +74,53 @@ For local add-on development, copy or mount that folder under Home Assistant's `
 5. Find **Twilio Voice Assistant** in the add-on store.
 6. Install the add-on.
 
-## Twilio Setup
+The installable add-on lives in:
 
-In Twilio, configure your phone number so incoming voice calls are sent to this add-on.
+```text
+twilio_voice_assistant/
+```
 
-1. Open the Twilio Console.
-2. Go to **Phone Numbers** > **Manage** > **Active numbers**.
-3. Select the phone number you want to use.
-4. Under **Voice Configuration**, set **A call comes in** to **Webhook**.
-5. Enter your public HTTPS webhook URL:
+## First-Time Setup
 
-   ```text
-   https://YOUR_PUBLIC_DOMAIN/incoming_call
-   ```
+### 1. Configure Add-on Options
 
-6. Set the method to `HTTP POST`.
-7. Save the phone number configuration.
+Open the add-on configuration page in Home Assistant and set the required values.
 
-For the normal Conversation Relay path, your public domain should forward only these paths to the add-on on port `8000`:
+Example using fake values:
+
+```yaml
+twilio_account_sid: ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+twilio_auth_token: YOUR_TWILIO_AUTH_TOKEN
+public_base_url: https://assistant.example.com
+auth_mode: caller_whitelist_or_pin
+unknown_caller_policy: pin_fallback
+conversation_relay_tts_provider: ElevenLabs
+conversation_relay_voice: YOUR_TWILIO_CONVERSATION_RELAY_VOICE_ID
+conversation_relay_transcription_provider: Deepgram
+conversation_relay_language: en-US
+allow_unsigned_twilio_requests_for_dev: false
+debug: false
+```
+
+Configuration notes:
+
+- `public_base_url` must be the public HTTPS base URL Twilio uses, without a trailing slash.
+- `auth_mode` can be:
+  - `caller_whitelist`: known Caller Access numbers only.
+  - `caller_whitelist_or_pin`: known callers skip PIN; unknown callers can use PIN fallback.
+  - `pin`: every caller must use DTMF PIN fallback.
+- `unknown_caller_policy` can be:
+  - `reject`: unknown callers are rejected.
+  - `pin_fallback`: unknown callers can enter a Caller Access PIN.
+- `conversation_relay_tts_provider` should be a Twilio-supported provider such as `ElevenLabs`.
+- `conversation_relay_voice` is provider/account specific. Do not assume a voice ID from another installation will work.
+- `allow_unsigned_twilio_requests_for_dev` must remain `false` for public or exposed endpoints.
+
+Start the add-on after saving the configuration.
+
+### 2. Expose Only Twilio Routes
+
+Your public HTTPS proxy or tunnel should forward only these paths to the add-on on port `8000`:
 
 ```text
 /incoming_call
@@ -93,85 +130,174 @@ For the normal Conversation Relay path, your public domain should forward only t
 /conversation_relay/status
 ```
 
-Do not forward `/admin` or `/admin/api/*` to the public internet.
+Do not expose these paths publicly:
 
-## Add-on Configuration
+```text
+/admin
+/admin/api/*
+```
 
-Open the add-on configuration page in Home Assistant and set:
+The admin UI is intended to be opened through Home Assistant Ingress.
 
-- `twilio_account_sid`: Your Twilio Account SID.
-- `twilio_auth_token`: Your Twilio Auth Token.
-- `public_base_url`: The public HTTPS base URL Twilio can reach, without a trailing slash.
-  - Example: `https://assistant.example.com`
-  - `assistant.example.com` is also accepted and will be treated as HTTPS.
-- `auth_mode`: Optional authentication mode. Defaults to `pin` for compatibility.
-  - `caller_whitelist`: Match Twilio `From` against configured callers.
-  - `caller_whitelist_or_pin`: Known callers skip PIN; unknown callers can use PIN fallback.
-- `unknown_caller_policy`: Defaults to `reject`. Use `pin_fallback` to allow unknown callers to try PIN auth.
-- `conversation_relay_tts_provider`: Defaults to `ElevenLabs`.
-- `conversation_relay_voice`: Optional Conversation Relay voice identifier.
-- `conversation_relay_transcription_provider`: Defaults to `Deepgram`.
-- `conversation_relay_language`: Defaults to `en-US`.
-- `allow_unsigned_twilio_requests_for_dev`: Defaults to `false`. Enable only for controlled local testing where requests are not signed by Twilio. Never enable this on exposed/public endpoints.
-- `debug`: Optional extra logging.
+### 3. Configure Twilio Phone Number
 
-Start the add-on after saving the configuration.
+In the Twilio Console:
 
-## Admin Page Setup
+1. Open **Phone Numbers** > **Manage** > **Active numbers**.
+2. Select the phone number to use.
+3. Under **Voice Configuration**, set **A call comes in** to **Webhook**.
+4. Enter:
 
-Open the add-on web UI from Home Assistant. The admin page uses Home Assistant Ingress, so it should be accessed from inside Home Assistant instead of through the public Twilio URL.
+   ```text
+   https://YOUR_PUBLIC_DOMAIN/incoming_call
+   ```
 
-From the admin page:
+5. Set the method to `HTTP POST`.
+6. Save the phone number configuration.
 
-1. Select the Home Assistant conversation agent to use.
+### 4. Configure Admin UI
+
+Open the add-on web UI from Home Assistant.
+
+1. Select the Home Assistant conversation agent.
 2. Click **Save Settings**.
-3. Use **Caller Access** for normal access management:
-   - Select the Home Assistant user.
-   - Enter one or more caller phone numbers.
-   - Optionally enter a 4 digit fallback PIN.
-   - Click **Add Caller Access**.
+3. In **Caller Access**, select a Home Assistant user.
+4. Enter one or more caller phone numbers in E.164 format, one per line:
 
-Caller Access stores `ha_user_id` as the stable key and resolves the display name from Home Assistant. Existing records show masked phone numbers and only `PIN set` or `No PIN`; saved PIN values are not displayed. Caller Access is the only caller identity and fallback PIN source. Assistant settings and admin-managed caller access are stored in `/share/twilio_voice_assistant` so they survive add-on rebuilds.
+   ```text
+   +1XXXXXXXXXX
+   +1YYYYYYYYYY
+   ```
 
-Validated path: add users and optional fallback PINs through Caller Access, and use Conversation Relay as the only voice bridge.
+5. Optionally enter a 4-digit fallback PIN.
+6. Click **Add Caller Access**.
 
-## Removed Legacy Paths
+Caller Access stores `ha_user_id` as the stable key and resolves the display name from Home Assistant. Existing records show masked phone numbers and only `PIN set` or `No PIN`; saved PIN values are not displayed.
 
-Version `1.4.0` removes the old local audio pipeline:
+### 5. Make A Test Call
 
-- Gather TwiML command loop.
-- Speech PIN mode.
-- Local Whisper transcription.
-- Home Assistant TTS-to-file response generation.
-- Public `/process_command` and `/audio/*` routes.
-
-Version `1.4.3` also removes the legacy caller identity and PIN management paths:
-
-- `allowed_callers` add-on options and runtime parsing.
-- `callers` add-on options and runtime parsing.
-- Separate legacy PIN-map storage.
-- Legacy PIN Management UI.
-- `/admin/api/pins` routes.
-
-## Test
-
-1. Call your Twilio phone number from a Caller Access allowed number.
+1. Call the Twilio phone number from an allowed Caller Access number.
 2. The call should skip PIN and enter Conversation Relay.
-3. Ask Home Assistant a command.
-4. Home Assistant should process the command through the selected conversation agent and Twilio should speak the response with ElevenLabs.
-5. To end the call, say a phrase such as `goodbye`, `hang up`, `end call`, `that's all`, or `I'm done`.
-6. The add-on should say goodbye and disconnect the call.
+3. Ask Home Assistant a command or question.
+4. Home Assistant should process it through the selected conversation agent.
+5. Twilio should speak the response through Conversation Relay using the configured voice.
+6. To end the call, say `goodbye`, `hang up`, `end call`, `that's all`, or `I'm done`.
 
-## Notes
+## Reverse Proxy Guidance
 
-- Rotate your Twilio auth token if it is ever pasted into logs, screenshots, chat, or documentation.
+### Cloudflare Tunnel
+
+Use Cloudflare Tunnel to expose your public hostname over HTTPS and route only the Twilio paths to the add-on service. Keep Home Assistant Ingress/admin paths private.
+
+Suggested route shape:
+
+```text
+https://assistant.example.com/incoming_call              -> add-on port 8000
+https://assistant.example.com/check_pin                  -> add-on port 8000
+https://assistant.example.com/start_session              -> add-on port 8000
+https://assistant.example.com/conversation_relay         -> add-on port 8000
+https://assistant.example.com/conversation_relay/status  -> add-on port 8000
+```
+
+Confirm websocket upgrade support for `/conversation_relay`.
+
+### NGINX Proxy Manager
+
+Create a proxy host for your public domain and forward to the Home Assistant add-on service on port `8000`. Enable websocket support. Use access controls or custom locations so only the Twilio public paths are exposed.
+
+Do not publish `/admin` or `/admin/api/*` through NGINX Proxy Manager.
+
+### Generic Reverse Proxy
+
+The proxy must:
+
+- Terminate HTTPS with a trusted certificate.
+- Preserve request path and query string.
+- Forward `POST` requests to Twilio webhook paths.
+- Support websocket upgrades for `/conversation_relay`.
+- Avoid exposing `/admin` and `/admin/api/*`.
+
+## Security
+
+Treat this add-on as an internet-facing webhook service.
+
+- Do not expose `/admin` or `/admin/api/*` publicly.
 - Twilio signature validation is enabled by default for `/incoming_call`, `/check_pin`, and `/start_session`.
-- Unsigned Twilio request bypass is development-only and disabled by default.
-- `/start_session` is protected by a short-lived signed session token generated only after caller whitelist or PIN authentication.
-- Conversation Relay websocket setup validates the same session token before trusting `user_id` or `user_name` custom parameters.
-- Version `1.4.0` is the Conversation Relay-only baseline: Caller Access authentication, DTMF PIN fallback, Home Assistant Conversation text bridge, and ElevenLabs through Twilio Conversation Relay.
-- Caller whitelist authentication is the preferred v2 path. DTMF PIN authentication remains fallback behavior.
-- Conversation Relay is the only supported voice bridge. After caller whitelist or PIN authentication, it returns `<Connect><ConversationRelay>` TwiML and expects Twilio to connect to the add-on websocket at `/conversation_relay`.
-- ElevenLabs TTS is the target voice provider for the v2.0.0 path.
-- The call path avoids local caller-audio and generated-TTS audio file handling.
-- Whisper is no longer a dependency and is not loaded at startup.
+- `allow_unsigned_twilio_requests_for_dev` is only for controlled local testing and must remain `false` for exposed endpoints.
+- `/start_session` requires a short-lived signed session token created only after caller authentication.
+- `/conversation_relay` validates the same signed session token during websocket setup.
+- Public endpoint exposure should be minimal.
+- Logs must not contain Twilio auth tokens, request signatures, session tokens, PINs, full phone numbers, full transcripts, or full Home Assistant responses.
+- Caller ID matching is useful for convenience, but it is not strong authentication by itself.
+- Rotate your Twilio auth token if it is ever pasted into logs, screenshots, chat, or documentation.
+
+## Troubleshooting
+
+### Twilio Signature Validation Failed
+
+- Confirm `public_base_url` exactly matches the public URL Twilio calls, including scheme and host.
+- Confirm Twilio uses `HTTP POST`.
+- Confirm your proxy preserves the path and query string.
+- Confirm `twilio_auth_token` is the active Twilio auth token.
+- Do not enable `allow_unsigned_twilio_requests_for_dev` on public endpoints.
+
+### Conversation Relay Websocket Does Not Connect
+
+- Confirm your public URL is HTTPS and the websocket URL resolves as `wss://`.
+- Confirm the reverse proxy supports websocket upgrades.
+- Confirm `/conversation_relay` is publicly reachable.
+- Check Twilio call logs for Conversation Relay errors.
+
+### `/start_session` Invalid Or Expired
+
+- `/start_session` is intentionally protected.
+- Start sessions only through `/incoming_call` or `/check_pin`.
+- Confirm Twilio is following the generated redirect quickly enough.
+- Confirm system time is reasonable on the host.
+
+### Caller Access User Not Matched
+
+- Confirm the caller phone number is stored in E.164 format, such as `+1XXXXXXXXXX`.
+- Confirm Twilio sends a `From` number.
+- Confirm the Caller Access record is saved.
+- Check logs for masked caller match status.
+
+### PIN Fallback Not Working
+
+- Confirm `auth_mode` is `pin` or `caller_whitelist_or_pin`.
+- Confirm `unknown_caller_policy` is `pin_fallback` for unknown caller tests.
+- Confirm the fallback PIN is set on a Caller Access record.
+- Confirm Twilio posts DTMF `Digits` to `/check_pin`.
+
+### Home Assistant Conversation Agent Not Selected
+
+- Open the add-on web UI through Home Assistant.
+- Select the conversation agent.
+- Click **Save Settings**.
+- Retry the call.
+
+### Voice Is Wrong Or Default
+
+- Confirm `conversation_relay_tts_provider` is valid for Twilio Conversation Relay.
+- Confirm `conversation_relay_voice` is valid for the selected provider and Twilio account.
+- Temporarily leave `conversation_relay_voice` blank to test provider defaults.
+
+### Public Base URL Or Proxy Problem
+
+- Confirm Twilio webhook URL is `https://YOUR_PUBLIC_DOMAIN/incoming_call`.
+- Confirm the same host is configured in `public_base_url`.
+- Confirm the proxy forwards all five public routes listed above.
+- Confirm `/admin` is not exposed publicly.
+
+## Development Docs
+
+- [Twilio development guide](docs/TWILIO_DEVELOPMENT.md)
+- [Local testing checklist](docs/LOCAL_TESTING.md)
+- [Decision log](docs/DECISIONS.md)
+- [Architecture notes](docs/ARCHITECTURE.md)
+
+## Project History
+
+Earlier private development builds tested local audio processing, Twilio Gather, speech PIN, Whisper, generated audio files, YAML caller identity, and legacy PIN maps. Those paths are not part of the public beta product.
+
+See [CHANGELOG.md](CHANGELOG.md) and [docs/DECISIONS.md](docs/DECISIONS.md) for historical context.

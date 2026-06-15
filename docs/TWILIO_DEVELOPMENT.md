@@ -2,7 +2,7 @@
 
 This guide covers the Twilio side of development for Twilio Voice Assistant. It is focused on building and testing the public webhook, Caller Access authentication, DTMF PIN fallback, and Conversation Relay bridge.
 
-For the target v2.0.0 architecture, read `docs/ARCHITECTURE.md` first. The current implementation path is Caller Access plus Twilio Conversation Relay. Gather, speech PIN, Whisper, local generated TTS audio files, `/process_command`, and `/audio/*` were removed in version `1.4.0`.
+For the target v2.0.0 architecture, read `docs/ARCHITECTURE.md` first. The current implementation path is Caller Access plus Twilio Conversation Relay.
 
 ## Current Product Path
 
@@ -15,9 +15,7 @@ Twilio call
   -> ElevenLabs voice through Twilio Conversation Relay
 ```
 
-Version `1.4.3` makes Caller Access the single source of truth for caller identity and fallback PINs. Caller Access records are stored in `/share/twilio_voice_assistant/callers.json`. Legacy `allowed_callers`, the separate PIN map, Legacy PIN Management UI, and `/admin/api/pins` have been removed.
-
-Version `1.4.4` removes the remaining add-on YAML `callers` option. Caller Access records in `/share/twilio_voice_assistant/callers.json` are now the only caller identity and fallback PIN source.
+Caller Access records in `/share/twilio_voice_assistant/callers.json` are the only caller identity and fallback PIN source.
 
 Version `1.4.2` makes secure Conversation Relay the normal product path. Twilio HTTP request signature validation is enabled for `/incoming_call`, `/check_pin`, and `/start_session` unless the explicit development-only unsigned request bypass is enabled. `/start_session` and Conversation Relay websocket setup are protected with a short-lived signed session token generated only after caller whitelist or PIN authentication.
 
@@ -106,23 +104,23 @@ Preferred Caller Access admin flow:
 - Fallback PINs are optional and stored on Caller Access records.
 - PIN fallback is DTMF-only.
 
-HA user IDs should not include angle brackets. Use `5e738...`, not `<5e738...>`.
+HA user IDs should not include angle brackets. Use the raw Home Assistant user ID value, not `<home_assistant_user_id>`.
 
 Conversation Relay TTS configuration:
 
 ```yaml
 conversation_relay_tts_provider: ElevenLabs
-conversation_relay_voice: h8eW5xfRUGVJrZhAFxqK
+conversation_relay_voice: YOUR_TWILIO_CONVERSATION_RELAY_VOICE_ID
 conversation_relay_transcription_provider: Deepgram
 conversation_relay_language: en-US
 allow_unsigned_twilio_requests_for_dev: false
 ```
 
-Use `conversation_relay_voice: h8eW5xfRUGVJrZhAFxqK` for the confirmed Elspeth ElevenLabs voice. Leave `conversation_relay_voice` empty only when Twilio should use its provider default. The value `default` is treated as blank and the app omits the `voice` attribute from Conversation Relay TwiML.
+Use a Conversation Relay voice ID that is valid for your Twilio account and selected provider. Leave `conversation_relay_voice` empty only when Twilio should use its provider default. The value `default` is treated as blank and the app omits the `voice` attribute from Conversation Relay TwiML.
 
 - Conversation Relay uses Twilio Conversation Relay TTS settings from add-on config. `conversation_relay_tts_provider` must be a Twilio-supported provider: `ElevenLabs`, `Google`, or `Amazon`.
 - Do not use Home Assistant TTS engine IDs as Conversation Relay `ttsProvider` values. `block_elevenlabs` is valid only as a Home Assistant TTS engine ID, not as a Twilio Conversation Relay provider.
-- Conversation Relay does not load Whisper and avoids local audio files plus local STT/TTS processing.
+- Conversation Relay avoids local audio files plus local STT/TTS processing.
 - `allow_unsigned_twilio_requests_for_dev` defaults to `false`. Set it to `true` only for controlled local tests where requests are not signed by Twilio. Never enable it on exposed/public endpoints.
 
 ## Caller Access Admin Behavior
@@ -135,7 +133,6 @@ Use `conversation_relay_voice: h8eW5xfRUGVJrZhAFxqK` for the confirmed Elspeth E
 - Shows existing records with masked phone numbers only.
 - Shows only `PIN set` or `No PIN`; PIN values are write-only in the UI.
 - Allows deleting admin-managed caller records.
-- Does not expose Legacy PIN Management.
 - Does not expose `/admin/api/pins`.
 
 ## Authentication Call Flows
@@ -194,17 +191,7 @@ Twilio call
   -> Conversation Relay
 ```
 
-Expected TwiML for DTMF PIN fallback:
-
-```xml
-<Response>
-  <Gather input="dtmf" numDigits="4" timeout="10" action="/check_pin" method="POST">
-    <Say>Please enter your four digit PIN.</Say>
-  </Gather>
-  <Say>I did not receive a PIN. Goodbye.</Say>
-  <Hangup/>
-</Response>
-```
+DTMF PIN fallback uses Twilio's DTMF collection verb and posts entered digits to `/check_pin`.
 
 ## Conversation Relay Build Path
 
@@ -224,7 +211,7 @@ Current generated TwiML shape:
       welcomeGreeting="Hello USER. What would you like to do?"
       language="en-US"
       ttsProvider="ElevenLabs"
-      voice="h8eW5xfRUGVJrZhAFxqK"
+      voice="YOUR_TWILIO_CONVERSATION_RELAY_VOICE_ID"
       transcriptionProvider="Deepgram">
       <Parameter name="user_id" value="..."/>
       <Parameter name="user_name" value="..."/>
@@ -235,9 +222,9 @@ Current generated TwiML shape:
 </Response>
 ```
 
-The app includes `voice="..."` only when `conversation_relay_voice` is configured and is not `default`. The confirmed Elspeth voice ID is `h8eW5xfRUGVJrZhAFxqK`.
+The app includes `voice="..."` only when `conversation_relay_voice` is configured and is not `default`.
 
-Validated on the active Twilio account: Conversation Relay starts after Caller Access authentication or successful DTMF PIN fallback, uses ElevenLabs with the Elspeth voice ID, sends final caller transcript text to Home Assistant Conversation, receives a Home Assistant response, speaks the response through Conversation Relay, and ends the call correctly through the end-call handling. Latency is much faster than the removed local audio-file path.
+Validated on the active Twilio account: Conversation Relay starts after Caller Access authentication or successful DTMF PIN fallback, uses ElevenLabs with a configured voice ID, sends final caller transcript text to Home Assistant Conversation, receives a Home Assistant response, speaks the response through Conversation Relay, and ends the call correctly through the end-call handling. Latency is much faster than the removed local audio-file path.
 
 TODO: Confirm interruption/barge-in behavior before treating that feature as production behavior.
 
@@ -291,7 +278,7 @@ Validated assumptions:
 - Conversation Relay sends final caller transcripts as websocket `prompt` messages.
 - The app can return text token messages for Twilio to speak.
 - ElevenLabs works as the Conversation Relay TTS provider on the active Twilio account.
-- The Elspeth ElevenLabs voice ID `h8eW5xfRUGVJrZhAFxqK` works.
+- A configured ElevenLabs voice ID works through Conversation Relay.
 
 TODO: Verify these provider/account details before broad production rollout:
 
@@ -339,7 +326,6 @@ Many tunnel and reverse proxy failures show up as Twilio webhook errors before t
 | Conversation Relay | Final prompt arrives | Logs include `transcript_text_received` and Home Assistant request timing. |
 | Conversation Relay | Home Assistant responds | App sends a `text` message back to Twilio with `last: true`. |
 | Startup | Conversation Relay-only runtime | Startup logs say secure Conversation Relay-only mode is selected and local audio-file handling is removed. |
-| Removed routes | `/process_command` or `/audio/*` | Routes are not documented as public endpoints and are no longer mounted. |
 
 ## Useful Logs
 
@@ -385,7 +371,7 @@ If signature validation fails:
 
 If known callers are not recognized:
 
-- Confirm Twilio sends `From` in E.164 format, such as `+15551234567`.
+- Confirm Twilio sends `From` in E.164 format, such as `+1XXXXXXXXXX`.
 - Confirm Caller Access record phone numbers use E.164 format.
 - Confirm number normalization does not strip or duplicate the country code.
 - Confirm the matching log masks the number but still indicates whether a match happened.

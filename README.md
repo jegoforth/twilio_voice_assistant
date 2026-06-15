@@ -2,9 +2,9 @@
 
 Call a Twilio phone number and talk to your Home Assistant voice assistant.
 
-Twilio Voice Assistant is a Home Assistant add-on that receives Twilio Voice calls, authenticates callers through the Caller Access UI or optional DTMF PIN fallback, sends transcript text to Home Assistant Conversation, and returns response text through Twilio Conversation Relay using a configured voice provider such as ElevenLabs.
+Twilio Voice Assistant is a Home Assistant App that receives Twilio Voice calls, authenticates callers through the Caller Access UI or optional DTMF PIN fallback, sends transcript text to Home Assistant Conversation, and returns response text through Twilio Conversation Relay using a configured voice provider such as ElevenLabs.
 
-The add-on is a text bridge. It does not run local STT/TTS, Whisper, Twilio Gather loops, or generated audio-file playback.
+The App is a text bridge. It does not run local STT/TTS or generated audio-file playback.
 
 ## Current Beta Shape
 
@@ -22,21 +22,20 @@ The add-on is a text bridge. It does not run local STT/TTS, Whisper, Twilio Gath
 
 | Supported | Notes |
 | --- | --- |
-| Home Assistant OS / Supervised | Requires Supervisor add-ons. |
+| Home Assistant OS / Supervised | Requires Supervisor Apps. |
 | Twilio Voice webhook | Incoming call webhook points to `/incoming_call`. |
 | Twilio Conversation Relay | Used for STT event delivery and TTS playback. |
 | Caller Access UI | The only caller identity management surface. |
 | DTMF PIN fallback | Optional fallback for unknown callers. |
 | Home Assistant Conversation agents | The selected HA agent handles the request. |
-| ElevenLabs through Conversation Relay | Configure provider and voice in add-on options. |
+| ElevenLabs through Conversation Relay | Configure provider and voice in App options. |
 
 ## Not Supported
 
 | Not supported | Notes |
 | --- | --- |
-| Home Assistant Core-only installs | Supervisor add-ons are required. |
+| Home Assistant Core-only installs | Supervisor Apps are required. |
 | Local Whisper | No local speech-to-text runtime is included. |
-| Twilio Gather command loop | Conversation Relay is the only bridge. |
 | Speech PIN | PIN fallback is DTMF only. |
 | Local generated TTS audio files | Speech playback is handled by Conversation Relay. |
 | Public admin access | `/admin` and `/admin/api/*` must stay private. |
@@ -51,18 +50,14 @@ The add-on is a text bridge. It does not run local STT/TTS, Whisper, Twilio Gath
   - Account SID.
   - Auth token.
   - Conversation Relay available on the account.
-- A public HTTPS URL that can forward the required Twilio routes to the add-on.
+- A public HTTPS URL that can forward the required Twilio routes to the App.
 - A Twilio Conversation Relay TTS provider/voice. ElevenLabs is the intended voice provider.
 
 ## Install
 
-### Add To My Home Assistant
+### Install From Repository
 
-[![Add repository to Home Assistant](https://my.home-assistant.io/badges/supervisor_add_addon_repository.svg)](https://my.home-assistant.io/redirect/supervisor_add_addon_repository/?repository_url=https%3A%2F%2Fgithub.com%2Fjegoforth%2Ftwilio_voice_assistant)
-
-### Manual Install
-
-1. In Home Assistant, go to **Settings** > **Add-ons** > **Add-on Store**.
+1. In Home Assistant, go to **Settings** > **Apps** > **App Store**.
 2. Open the menu in the top right and choose **Repositories**.
 3. Add this repository URL:
 
@@ -71,10 +66,10 @@ The add-on is a text bridge. It does not run local STT/TTS, Whisper, Twilio Gath
    ```
 
 4. Close the repositories dialog.
-5. Find **Twilio Voice Assistant** in the add-on store.
-6. Install the add-on.
+5. Find **Twilio Voice Assistant** in the App Store.
+6. Install the App.
 
-The installable add-on lives in:
+The installable App lives in:
 
 ```text
 twilio_voice_assistant/
@@ -82,9 +77,9 @@ twilio_voice_assistant/
 
 ## First-Time Setup
 
-### 1. Configure Add-on Options
+### 1. Configure App Options
 
-Open the add-on configuration page in Home Assistant and set the required values.
+Open the App configuration page in Home Assistant and set the required values.
 
 Example using fake values:
 
@@ -116,11 +111,11 @@ Configuration notes:
 - `conversation_relay_voice` is provider/account specific. Do not assume a voice ID from another installation will work.
 - `allow_unsigned_twilio_requests_for_dev` must remain `false` for public or exposed endpoints.
 
-Start the add-on after saving the configuration.
+Start the App after saving the configuration.
 
 ### 2. Expose Only Twilio Routes
 
-Your public HTTPS proxy or tunnel should forward only these paths to the add-on on port `8000`:
+Your public HTTPS proxy or tunnel should forward only these paths to the App on port `8000`:
 
 ```text
 /incoming_call
@@ -157,7 +152,7 @@ In the Twilio Console:
 
 ### 4. Configure Admin UI
 
-Open the add-on web UI from Home Assistant.
+Open the App web UI from Home Assistant.
 
 1. Select the Home Assistant conversation agent.
 2. Click **Save Settings**.
@@ -187,23 +182,23 @@ Caller Access stores `ha_user_id` as the stable key and resolves the display nam
 
 ### Cloudflare Tunnel
 
-Use Cloudflare Tunnel to expose your public hostname over HTTPS and route only the Twilio paths to the add-on service. Keep Home Assistant Ingress/admin paths private.
+Use Cloudflare Tunnel to expose your public hostname over HTTPS and route only the Twilio paths to the App service. Keep Home Assistant Ingress/admin paths private.
 
 Suggested route shape:
 
 ```text
-https://assistant.example.com/incoming_call              -> add-on port 8000
-https://assistant.example.com/check_pin                  -> add-on port 8000
-https://assistant.example.com/start_session              -> add-on port 8000
-https://assistant.example.com/conversation_relay         -> add-on port 8000
-https://assistant.example.com/conversation_relay/status  -> add-on port 8000
+https://assistant.example.com/incoming_call              -> App port 8000
+https://assistant.example.com/check_pin                  -> App port 8000
+https://assistant.example.com/start_session              -> App port 8000
+https://assistant.example.com/conversation_relay         -> App port 8000
+https://assistant.example.com/conversation_relay/status  -> App port 8000
 ```
 
 Confirm websocket upgrade support for `/conversation_relay`.
 
 ### NGINX Proxy Manager
 
-Create a proxy host for your public domain and forward to the Home Assistant add-on service on port `8000`. Enable websocket support. Use access controls or custom locations so only the Twilio public paths are exposed.
+Create a proxy host for your public domain and forward to the Home Assistant App service on port `8000`. Enable websocket support. Use access controls or custom locations so only the Twilio public paths are exposed.
 
 Do not publish `/admin` or `/admin/api/*` through NGINX Proxy Manager.
 
@@ -219,7 +214,7 @@ The proxy must:
 
 ## Security
 
-Treat this add-on as an internet-facing webhook service.
+Treat this App as an internet-facing webhook service.
 
 - Do not expose `/admin` or `/admin/api/*` publicly.
 - Twilio signature validation is enabled by default for `/incoming_call`, `/check_pin`, and `/start_session`.
@@ -271,7 +266,7 @@ Treat this add-on as an internet-facing webhook service.
 
 ### Home Assistant Conversation Agent Not Selected
 
-- Open the add-on web UI through Home Assistant.
+- Open the App web UI through Home Assistant.
 - Select the conversation agent.
 - Click **Save Settings**.
 - Retry the call.
@@ -298,6 +293,4 @@ Treat this add-on as an internet-facing webhook service.
 
 ## Project History
 
-Earlier private development builds tested local audio processing, Twilio Gather, speech PIN, Whisper, generated audio files, YAML caller identity, and legacy PIN maps. Those paths are not part of the public beta product.
-
-See [CHANGELOG.md](CHANGELOG.md) and [docs/DECISIONS.md](docs/DECISIONS.md) for historical context.
+This repository is being prepared for first public beta use from the current Conversation Relay and Caller Access design. See [CHANGELOG.md](CHANGELOG.md) and [docs/DECISIONS.md](docs/DECISIONS.md) for release notes and implementation decisions.

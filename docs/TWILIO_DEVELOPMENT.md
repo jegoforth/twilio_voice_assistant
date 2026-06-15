@@ -26,7 +26,7 @@ Caller ID whitelist matching is useful for routing known callers, but it is not 
 Twilio is responsible for:
 
 - Receiving the phone call on a Twilio phone number.
-- Calling the add-on webhook at `/incoming_call`.
+- Calling the App webhook at `/incoming_call`.
 - Sending the caller phone number in the webhook `From` field.
 - Sending the called Twilio number in the webhook `To` field.
 - Posting follow-up webhook fields such as `CallSid` and `Digits` when DTMF PIN fallback is used.
@@ -50,7 +50,7 @@ Home Assistant remains responsible for:
 
 ## Public Endpoints
 
-Expose only the Conversation Relay routes needed by the add-on.
+Expose only the Conversation Relay routes needed by the App.
 
 ```text
 /incoming_call
@@ -87,7 +87,7 @@ In the Twilio Console:
 
 Use HTTPS. Twilio should not be pointed at plain HTTP for development unless you are using a short-lived local tunnel that terminates HTTPS externally.
 
-## Add-on Configuration For Twilio Testing
+## App Configuration For Twilio Testing
 
 Required:
 
@@ -118,7 +118,7 @@ allow_unsigned_twilio_requests_for_dev: false
 
 Use a Conversation Relay voice ID that is valid for your Twilio account and selected provider. Leave `conversation_relay_voice` empty only when Twilio should use its provider default. The value `default` is treated as blank and the app omits the `voice` attribute from Conversation Relay TwiML.
 
-- Conversation Relay uses Twilio Conversation Relay TTS settings from add-on config. `conversation_relay_tts_provider` must be a Twilio-supported provider: `ElevenLabs`, `Google`, or `Amazon`.
+- Conversation Relay uses Twilio Conversation Relay TTS settings from App config. `conversation_relay_tts_provider` must be a Twilio-supported provider: `ElevenLabs`, `Google`, or `Amazon`.
 - Do not use Home Assistant TTS engine IDs as Conversation Relay `ttsProvider` values. `block_elevenlabs` is valid only as a Home Assistant TTS engine ID, not as a Twilio Conversation Relay provider.
 - Conversation Relay avoids local audio files plus local STT/TTS processing.
 - `allow_unsigned_twilio_requests_for_dev` defaults to `false`. Set it to `true` only for controlled local tests where requests are not signed by Twilio. Never enable it on exposed/public endpoints.
@@ -197,7 +197,7 @@ DTMF PIN fallback uses Twilio's DTMF collection verb and posts entered digits to
 
 Conversation Relay is the only supported voice bridge. It depends on the active Twilio account having Conversation Relay enabled.
 
-The add-on returns Conversation Relay TwiML only after the caller is authenticated. The websocket URL is derived from `public_base_url` by converting `https://` to `wss://`.
+The App returns Conversation Relay TwiML only after the caller is authenticated. The websocket URL is derived from `public_base_url` by converting `https://` to `wss://`.
 
 `/start_session` is not an open user-ID endpoint. After caller whitelist or PIN authentication, the app redirects Twilio to `/start_session` with a short-lived signed `session_token`. The token includes `user_id`, `user_name`, creation time, and `CallSid` when available. `/start_session` validates the token before returning Conversation Relay TwiML and passes the same token to Conversation Relay as a custom parameter.
 
@@ -293,9 +293,9 @@ Reference docs:
 
 ## Local Tunnel Checklist
 
-For development outside a deployed public add-on:
+For development outside a deployed public App:
 
-1. Run the add-on or FastAPI app on port `8000`.
+1. Run the App or FastAPI app on port `8000`.
 2. Start an HTTPS tunnel to port `8000`.
 3. Set `public_base_url` to the tunnel base URL.
 4. Configure the Twilio phone number webhook to `https://TUNNEL_DOMAIN/incoming_call`.
@@ -304,7 +304,7 @@ For development outside a deployed public add-on:
 7. Confirm websocket upgrade support for `/conversation_relay`.
 8. For unsigned local tests only, set `allow_unsigned_twilio_requests_for_dev: true`; turn it off before exposing public endpoints.
 
-Many tunnel and reverse proxy failures show up as Twilio webhook errors before the app receives anything. Check both Twilio call logs and add-on logs.
+Many tunnel and reverse proxy failures show up as Twilio webhook errors before the App receives anything. Check both Twilio call logs and App logs.
 
 ## Test Matrix
 

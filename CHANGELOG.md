@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.4.5 - Public Beta Baseline
+## 1.4.6 - Public Beta Baseline
 
 This is the first public beta shape of Twilio Voice Assistant.
 
@@ -19,7 +19,6 @@ Current product shape:
 Not included in the public beta path:
 
 - Local Whisper.
-- Twilio Gather command loop.
 - Speech PIN.
 - Local generated TTS audio files.
 - YAML caller identity configuration.

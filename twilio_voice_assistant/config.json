@@ -1,8 +1,8 @@
 {
   "name": "Twilio Voice Assistant",
-  "version": "1.4.5",
+  "version": "1.4.6",
   "slug": "twilio_voice_assistant",
-  "description": "Twilio Conversation Relay webhook service with Caller Access authentication, DTMF PIN fallback, ElevenLabs voice support, and Home Assistant Conversation integration.",
+  "description": "Twilio Conversation Relay app with Caller Access authentication, DTMF PIN fallback, ElevenLabs voice support, and Home Assistant Conversation integration.",
   "arch": ["amd64", "aarch64"],
   "startup": "services",
   "boot": "auto",

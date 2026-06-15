@@ -26,7 +26,7 @@ Focused activity logs and test notes may live in separate markdown files, such a
 
 The next targeted architecture is named **v2.0.0**.
 
-v2.0.0 represents a major architectural change from an audio-processing add-on to a text-only voice bridge with external STT/TTS.
+v2.0.0 represents a major architectural change from an audio-processing App to a text-only voice bridge with external STT/TTS.
 
 ## Decision 002: Make the primary bridge text-only
 
@@ -88,15 +88,15 @@ Consequences:
 - If used, ElevenLabs should call back into the bridge through tools/endpoints that send text to Home Assistant and return text results.
 - Session authority, identity, and security should remain in the bridge/Home Assistant side where possible.
 
-## Decision 006: Preserve the existing Gather path as fallback
+## Decision 006: Preserve the existing local audio prototype path as fallback
 
 **Status:** Superseded by Decision 018
 
-The current Gather-based implementation remained available as a fallback while v2.0.0 was developed. This compatibility decision was superseded after Conversation Relay plus Caller Access passed testing from multiple phones.
+The current local audio prototype-based implementation remained available as a fallback while v2.0.0 was developed. This compatibility decision was superseded after Conversation Relay plus Caller Access passed testing from multiple phones.
 
 Consequences:
 
-- Version `1.4.0` removes Gather, `/process_command`, `/audio/*`, local Whisper, Twilio recording download/transcription, and local generated TTS audio files.
+- Version `1.4.0` removes local audio prototype, `/process_command`, `/audio/*`, local Whisper, Twilio recording download/transcription, and local generated TTS audio files.
 - Conversation Relay is now the only supported bridge mode.
 
 ## Decision 007: Keep PIN support as fallback/legacy authentication
@@ -134,21 +134,21 @@ Consequences:
 
 **Status:** Deferred
 
-The project should remain focused on being a Home Assistant add-on for the current v2.0.0 hardening work. HACS custom integration work is deferred.
+The project should remain focused on being a Home Assistant App for the current v2.0.0 hardening work. HACS custom integration work is deferred.
 
 Rationale:
 
-The current runtime is a public webhook/websocket service packaged as a Supervisor add-on. HACS is for Home Assistant custom integrations under `custom_components/`, not for installing this add-on service. Keeping both shapes in the same repository creates confusion when adding the GitHub URL as an add-on repository.
+The current runtime is a public webhook/websocket service packaged as a Supervisor App. HACS is for Home Assistant custom integrations under `custom_components/`, not for installing this App service. Keeping both shapes in the same repository creates confusion when adding the GitHub URL as an App repository.
 
 Implementation note:
 
-The earlier HACS skeleton has been removed for now. The repository is structured as a Home Assistant add-on repository with root `repository.yaml` and the installable add-on under:
+The earlier HACS skeleton has been removed for now. The repository is structured as a Home Assistant App repository with root `repository.yaml` and the installable App under:
 
 ```text
 twilio_voice_assistant/
 ```
 
-HACS integration work can be revisited later if the project needs Home Assistant-native config flows, entities, diagnostics, or options flows separate from the add-on service.
+HACS integration work can be revisited later if the project needs Home Assistant-native config flows, entities, diagnostics, or options flows separate from the App service.
 
 ## Decision 010: Separate integration responsibilities from bridge-service responsibilities
 
@@ -158,11 +158,11 @@ The HACS integration and the public bridge service should be treated as separate
 
 Possible v2.0.0 deployment shapes:
 
-1. Home Assistant add-on as the public bridge service.
-2. Future HACS integration plus Home Assistant add-on, if native configuration/entities are needed.
+1. Home Assistant App as the public bridge service.
+2. Future HACS integration plus Home Assistant App, if native configuration/entities are needed.
 3. Integration-only mode only if safe endpoint exposure is practical.
 
-The safest near-term target is the Home Assistant add-on as the bridge runtime.
+The safest near-term target is the Home Assistant App as the bridge runtime.
 
 ## Decision 011: Public routes must be minimal
 
@@ -241,7 +241,7 @@ Consequences:
 - The websocket handler returns Home Assistant response text to Conversation Relay as text messages.
 - Generated speech is delegated to Twilio/ElevenLabs.
 - Conversation Relay mode must not write caller audio, generated TTS audio, transient transcripts, or transient response text to disk.
-- Gather mode, local recording, transcription, generated audio, and `/audio/*` were removed in version `1.4.0`.
+- local audio prototype mode, local recording, transcription, generated audio, and `/audio/*` were removed in version `1.4.0`.
 
 ## Decision 016: Prefer caller whitelist authentication for v2
 
@@ -279,7 +279,7 @@ callers:
 - Unknown callers should either be rejected or sent to PIN fallback, depending on configuration.
 - Full caller numbers must not be logged by default.
 - Caller ID whitelist matching is convenient but not strong authentication by itself.
-- `auth_mode: pin` remains the backward-compatible default for existing add-on installs.
+- `auth_mode: pin` remains the backward-compatible default for existing App installs.
 - Twilio webhook signature validation and Conversation Relay websocket session validation are part of the normal product path.
 
 Implementation note:
@@ -290,22 +290,22 @@ The implementation reads Caller Access records from `/share/twilio_voice_assista
 
 Caller Access admin UI is now the management model for unified caller identity. It writes caller records to `/share/twilio_voice_assistant/callers.json`, stores `ha_user_id` as the stable key, resolves the Home Assistant display name dynamically, masks phone numbers in the UI, and treats PIN values as write-only.
 
-Cleanup direction: the normal product path is Caller Access UI -> Conversation Relay -> Home Assistant Conversation -> ElevenLabs voice. Gather/audio/Whisper/TTS-file handling was removed in version `1.4.0` after additional stable use.
+Cleanup direction: the normal product path is Caller Access UI -> Conversation Relay -> Home Assistant Conversation -> ElevenLabs voice. local audio prototype/audio/Whisper/TTS-file handling was removed in version `1.4.0` after additional stable use.
 
 Cleanup phase 2: Version `1.3.13` is the cleanup baseline after Caller Access UI validation. Version `1.3.14` is the lightweight Conversation Relay runtime baseline. The app no longer imports or loads Whisper at startup for the normal Conversation Relay path.
 
-Cleanup phase 3 decision: Conversation Relay plus Caller Access is the product path. Gather and `pin_mode: speech` were hidden legacy fallbacks before they were removed.
+Cleanup phase 3 decision: Conversation Relay plus Caller Access is the product path. local audio prototype and `pin_mode: speech` were hidden legacy fallbacks before they were removed.
 
-## Decision 018: Remove deprecated Gather, speech PIN, Whisper, and local audio files
+## Decision 018: Remove deprecated local audio prototype, speech PIN, Whisper, and local audio files
 
 **Status:** Accepted
 
-Version `1.4.0` makes the add-on a Conversation Relay-only bridge.
+Version `1.4.0` makes the App a Conversation Relay-only bridge.
 
 Removed runtime paths:
 
-- `voice_bridge_mode` and the `gather`/`elevenlabs_agent` bridge selector.
-- Gather TwiML command loop.
+- `voice_bridge_mode` and the `local audio prototype`/`elevenlabs_agent` bridge selector.
+- local audio prototype TwiML command loop.
 - `/process_command`.
 - `/audio/*`.
 - Speech PIN mode.
@@ -326,23 +326,23 @@ Consequences:
 
 - Normal public routes are `/incoming_call`, `/check_pin`, `/start_session`, `/conversation_relay`, and `/conversation_relay/status`.
 - Startup logs should identify the runtime as Conversation Relay-only and report `local_audio_pipeline: removed`.
-- The add-on version is bumped to `1.4.0` because this removes legacy fallback compatibility.
+- The App version is bumped to `1.4.0` because this removes legacy fallback compatibility.
 
 Startup configuration logging now runs from a FastAPI startup hook instead of module import so deployment logs clearly show the active authentication and bridge configuration when the app starts.
 
 Caller whitelist parsing now supports the preferred multi-number shape, where one Home Assistant user has a `phone_numbers` list. The legacy single-value `phone_number` shape remains supported and is normalized into the same flat lookup table internally.
 
-Caller whitelist management is no longer config-only. The previous broken inline allowed-caller form was not reintroduced; instead, the admin page now has a focused Caller Access section backed by `/share/twilio_voice_assistant/callers.json`. Future Home Assistant-native management can still move into a HACS options flow later, but the add-on admin page now has a safe migration UI for day-to-day caller access.
+Caller whitelist management is no longer config-only. The previous broken inline allowed-caller form was not reintroduced; instead, the admin page now has a focused Caller Access section backed by `/share/twilio_voice_assistant/callers.json`. Future Home Assistant-native management can still move into a HACS options flow later, but the App admin page now has a safe migration UI for day-to-day caller access.
 
-The earlier issue was add-on schema/config visibility, not runtime caller matching. The active add-on manifest is `twilio_voice_assistant/config.json`. The Caller Access UI avoids writing Home Assistant add-on options directly; it writes caller records to `/share`.
+The earlier issue was App schema/config visibility, not runtime caller matching. The active App manifest is `twilio_voice_assistant/config.json`. The Caller Access UI avoids writing Home Assistant App options directly; it writes caller records to `/share`.
 
 Validation note:
 
-The repository-installed add-on starts successfully. The admin UI was restored and is functional again. DTMF PIN authentication works. Caller configuration was tested successfully through the standard add-on config path. A known caller matched caller identity config, skipped PIN, and entered the conversation flow. An unlisted caller with PIN fallback enabled was prompted for PIN; one wrong PIN was rejected as expected, and one correct PIN was accepted and entered conversation as expected.
+The repository-installed App starts successfully. The admin UI was restored and is functional again. DTMF PIN authentication works. Caller configuration was tested successfully through the standard App config path. A known caller matched caller identity config, skipped PIN, and entered the conversation flow. An unlisted caller with PIN fallback enabled was prompted for PIN; one wrong PIN was rejected as expected, and one correct PIN was accepted and entered conversation as expected.
 
 Caller Access validation: Caller Access web UI is working. Users were added through the web UI. A call from an allowed number skipped PIN and entered Conversation Relay as expected. A call from an unlisted number fell back to PIN as expected. Correct PIN was accepted and entered Conversation Relay as expected. Unified Caller Access is now the configuration path. Conversation Relay remains the preferred/default voice bridge.
 
-Conversation Relay mode was validated successfully. Conversation Relay uses ElevenLabs successfully with a configured Elspeth voice ID. Conversation Relay sends caller transcript text to Home Assistant Conversation, Home Assistant Conversation returns a response, and the assistant verified something in the house correctly. The call ended correctly through the end-call handling. Conversation Relay latency is much faster than the previous Gather/TTS/audio-file path.
+Conversation Relay mode was validated successfully. Conversation Relay uses ElevenLabs successfully with a configured Elspeth voice ID. Conversation Relay sends caller transcript text to Home Assistant Conversation, Home Assistant Conversation returns a response, and the assistant verified something in the house correctly. The call ended correctly through the end-call handling. Conversation Relay latency is much faster than the previous local audio prototype/TTS/audio-file path.
 
 Version `1.3.8` was validated as the stable unified-auth Conversation Relay baseline. Unified `callers` config works. Known caller phone numbers skip PIN and enter Conversation Relay. Unlisted callers fall back to PIN when configured. Wrong PIN is rejected, correct PIN is accepted, Conversation Relay remains the preferred/default voice bridge, and ElevenLabs Elspeth voice is working through Conversation Relay.
 
@@ -357,13 +357,13 @@ Stable v2 baseline:
 - Conversation Relay sends caller transcript text to Home Assistant Conversation and receives response text successfully.
 - The assistant can verify house state through Home Assistant.
 - End-call handling works.
-- Conversation Relay is much faster than the previous Gather/TTS/audio-file path.
+- Conversation Relay is much faster than the previous local audio prototype/TTS/audio-file path.
 - This version should be treated as the known-good baseline before adding new features.
 - Future changes should preserve this path unless explicitly replacing it.
-- Version `1.4.0` removes Gather, speech PIN, Whisper, local generated TTS audio files, `/process_command`, and `/audio/*`.
+- Version `1.4.0` removes local audio prototype, speech PIN, Whisper, local generated TTS audio files, `/process_command`, and `/audio/*`.
 - Conversation Relay is now the preferred voice bridge mode.
 
-The attempted inline allowed-caller management work was reverted/stopped. Caller Access supersedes it with a smaller, isolated UI that manages canonical caller records in `/share/twilio_voice_assistant/callers.json` without modifying Home Assistant add-on options directly. Future caller management can still move into a HACS options flow or separately designed Home Assistant-native UI.
+The attempted inline allowed-caller management work was reverted/stopped. Caller Access supersedes it with a smaller, isolated UI that manages canonical caller records in `/share/twilio_voice_assistant/callers.json` without modifying Home Assistant App options directly. Future caller management can still move into a HACS options flow or separately designed Home Assistant-native UI.
 
 The next validation focus should be interruption/barge-in behavior and broader production hardening.
 
@@ -406,7 +406,7 @@ Version `1.4.3` removes the remaining legacy caller identity and PIN migration p
 
 Removed paths:
 
-- `allowed_callers` add-on option and schema entries.
+- `allowed_callers` App option and schema entries.
 - Runtime parsing/loading of `allowed_callers`.
 - Separate legacy PIN-map storage and migration loading.
 - Legacy PIN Management UI.
@@ -430,13 +430,13 @@ Consequences:
 - Fallback PINs are write-only in the Caller Access UI and are not displayed after save.
 - Unknown caller PIN fallback validates against PINs on Caller Access records.
 - If no Caller Access PINs are configured, unknown caller PIN fallback fails safely.
-- Existing deployments using `allowed_callers`, add-on YAML `callers`, or the separate old PIN map need to recreate records in Caller Access.
+- Existing deployments using `allowed_callers`, App YAML `callers`, or the separate old PIN map need to recreate records in Caller Access.
 
-## Decision 021: Remove add-on YAML callers
+## Decision 021: Remove App YAML callers
 
 **Status:** Accepted
 
-Version `1.4.4` removes the remaining add-on YAML `callers` option from `twilio_voice_assistant/config.json`, `run.sh`, and runtime loading.
+Version `1.4.4` removes the remaining App YAML `callers` option from `twilio_voice_assistant/config.json`, `run.sh`, and runtime loading.
 
 Rationale:
 
@@ -447,7 +447,7 @@ Consequences:
 - Caller Access records in `/share/twilio_voice_assistant/callers.json` are the only caller identity source.
 - Fallback PINs are managed only through Caller Access records.
 - The admin UI no longer shows read-only config-sourced caller records.
-- The add-on options editor no longer exposes caller identity records.
+- The App options editor no longer exposes caller identity records.
 - Existing deployments that still have YAML `callers` must recreate those records through Caller Access before relying on caller whitelist or PIN fallback behavior.
 
 ## Decision 022: Present the current design as the public beta product
@@ -496,12 +496,12 @@ Consequences:
 2. Does the active Twilio account support Conversation Relay and ElevenLabs TTS provider configuration?
 3. Can Conversation Relay provide the desired interruption/barge-in behavior?
 4. Can ElevenLabs Agent integration preserve Home Assistant as the source of truth for conversation and service execution?
-5. Should the HACS integration and add-on remain in the same repository or eventually split?
+5. Should the HACS integration and App remain in the same repository or eventually split?
 6. If HACS work returns later, what entities should the integration expose by default?
-7. If HACS work returns later, how should secrets be shared between the integration and bridge service/add-on?
+7. If HACS work returns later, how should secrets be shared between the integration and bridge service/App?
 8. Should the stateless session token gain one-time-use replay protection after the short-TTL hardening proves stable?
-9. What is the final storage model for caller whitelist configuration in the add-on and future HACS integration?
-10. What would a future HACS options flow need to manage caller whitelist entries cleanly without overloading the add-on admin page?
+9. What is the final storage model for caller whitelist configuration in the App and future HACS integration?
+10. What would a future HACS options flow need to manage caller whitelist entries cleanly without overloading the App admin page?
 
 ## Immediate implementation plan
 
@@ -514,7 +514,7 @@ Consequences:
 7. Keep PIN authentication as fallback/legacy behavior. **Done.**
 8. Validate Conversation Relay with ElevenLabs TTS configuration through Twilio. **Done.**
 9. Add latency instrumentation. **Done for logs; diagnostics remain future work.**
-10. Structure the repository as a valid Home Assistant add-on repository. **Done.**
+10. Structure the repository as a valid Home Assistant App repository. **Done.**
 11. Move configuration and diagnostics into a future HACS integration. **Deferred.**
-12. Keep the current add-on as the bridge runtime until an integration-only deployment is proven safe. **Current approach.**
+12. Keep the current App as the bridge runtime until an integration-only deployment is proven safe. **Current approach.**
 13. Migrate caller identity to Caller Access and remove legacy `allowed_callers` plus separate PIN UI compatibility. **Done in `1.4.3`.**

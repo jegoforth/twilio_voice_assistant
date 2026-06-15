@@ -1,6 +1,6 @@
 # Local Testing Checklist
 
-Use this checklist for the current Conversation Relay-only add-on. Keep test logs free of full caller phone numbers, PIN values, session tokens, full transcripts, and full Home Assistant responses.
+Use this checklist for the current Conversation Relay-only App. Keep test logs free of full caller phone numbers, PIN values, session tokens, full transcripts, and full Home Assistant responses.
 
 ## Latest Validated Results
 
@@ -21,7 +21,7 @@ Use this checklist for the current Conversation Relay-only add-on. Keep test log
 
 ## Startup
 
-- Add-on starts without configuration parsing errors.
+- App starts without configuration parsing errors.
 - Logs include one `startup_configuration` timing event.
 - `startup_configuration` includes:
   - `auth_mode`
@@ -43,7 +43,7 @@ Use this checklist for the current Conversation Relay-only add-on. Keep test log
 
 ## Authentication
 
-- The active add-on manifest is `twilio_voice_assistant/config.json`.
+- The active App manifest is `twilio_voice_assistant/config.json`.
 - Normal caller identity setup uses Caller Access in the web UI.
 - Fallback PINs are configured on Caller Access records.
 - HA user IDs should not include angle brackets. Use the raw Home Assistant user ID value, not `<home_assistant_user_id>`.

@@ -1,6 +1,11 @@
 ARG BUILD_FROM=debian:bookworm-slim
 FROM $BUILD_FROM
 
+ARG SOURCE_VERSION=unknown
+ARG SOURCE_REVISION=unknown
+ENV SOURCE_VERSION=$SOURCE_VERSION
+ENV SOURCE_REVISION=$SOURCE_REVISION
+
 RUN apt-get update && apt-get install -y \
     python3 \
     python3-venv \

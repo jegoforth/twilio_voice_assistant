@@ -1,5 +1,8 @@
 #!/bin/bash
 
+echo "Source version: ${SOURCE_VERSION:-unknown}"
+echo "Source revision: ${SOURCE_REVISION:-unknown}"
+
 . /app/venv/bin/activate
 
 # Load addon configuration

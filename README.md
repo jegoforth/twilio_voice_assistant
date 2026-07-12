@@ -1,5 +1,7 @@
 # Twilio Voice Assistant
 
+Release versions are mapped to immutable tags and build revisions using the [release procedure](RELEASING.md).
+
 Call a Twilio phone number and talk to your Home Assistant voice assistant.
 
 Twilio Voice Assistant is a Home Assistant App that receives Twilio Voice calls, authenticates callers through the Caller Access UI or optional DTMF PIN fallback, sends transcript text to Home Assistant Conversation, and returns response text through Twilio Conversation Relay using a configured voice provider such as ElevenLabs.

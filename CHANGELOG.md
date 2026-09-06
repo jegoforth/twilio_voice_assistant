@@ -1,7 +1,8 @@
 # Changelog
 
-## Unreleased
+## 1.5.0
 
+- **Requires [HA Extended User Management](https://github.com/jegoforth/ha-extended-user-management)**, a separate Home Assistant integration. Install and configure it (set each household member's `phone_number` and PIN) before this release.
 - Caller phone-number matching now goes through HA Extended User
   Management's `find_person_by_phone` service (a `phone_number` profile
   value on the person's own record) instead of this add-on's own

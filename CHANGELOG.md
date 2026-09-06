@@ -1,5 +1,27 @@
 # Changelog
 
+## Unreleased
+
+- Caller phone-number matching now goes through HA Extended User
+  Management's `find_person_by_phone` service (a `phone_number` profile
+  value on the person's own record) instead of this add-on's own
+  `callers.json` -- one source of truth shared with the person's PIN.
+- Every caller turn is now handed to Elspeth Core via the narrow
+  `elspeth_local.twilio_conversation` service (which signs a real per-call
+  identity) instead of the generic `conversation/process` REST API, which
+  carried no caller identity at all.
+- An unrecognized caller is no longer sent to a DTMF PIN prompt
+  (`/check_pin`). They are connected straight into Conversation Relay with
+  a placeholder identity that resolves to `household_unknown` in Core, and
+  Core's own spoken self-declaration + PIN elevation ladder ("To whom am I
+  speaking?" / stated name / "Can you verify your PIN?" / spoken PIN)
+  handles identity entirely in natural voice -- no DTMF, no PIN stored by
+  this add-on at all. Nothing is answered for an unrecognized caller until
+  that PIN verifies.
+- `AUTH_MODE`, `UNKNOWN_CALLER_POLICY`, `/check_pin`, `prompt_for_pin()`,
+  and the Caller Access PIN fields are no longer reached by `/incoming_call`
+  and are candidates for removal in a follow-up cleanup pass.
+
 ## 1.4.6 - Public Beta Baseline
 
 This is the first public beta shape of Twilio Voice Assistant.

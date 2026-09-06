@@ -46,6 +46,12 @@ ALLOW_UNSIGNED_TWILIO_REQUESTS_FOR_DEV = (
 )
 SESSION_TOKEN_TTL_SECONDS = 120
 
+# Placeholder ha_user_id for an unrecognized caller. Deliberately never a
+# real HA user UUID, so identity_assertion.py's signer finds no mapping for
+# it and elspeth_local's client.py falls back to household_unknown -- Core
+# then drives its own self-declaration + PIN elevation ladder from there.
+UNKNOWN_CALLER_HA_USER_ID = "twilio_unrecognized_caller"
+
 SUPPORTED_AUTH_MODES = {
     "caller_whitelist",
     "pin",
@@ -412,6 +418,70 @@ def find_caller_access_record(from_number: str | None):
         if caller["phone_number"] == normalized_from:
             return caller, normalized_from
     return None, normalized_from
+
+
+# Superseded phone-number lookup: phone numbers now live in HA Extended User
+# Management (a phone_number profile value on the person's own record) so
+# there is one source of truth shared with the PIN itself, instead of this
+# app's own plaintext callers.json. See find_person_by_phone() below.
+async def resolve_person_ha_user(person_entity_id: str):
+    """Read a person entity's own user_id/friendly_name attributes.
+
+    The person's `user_id` attribute (set when a person entity is linked to
+    a real Home Assistant user account) is the same HA user UUID that
+    identity_assertion.py's mapping file keys on -- so this is the one
+    piece needed to turn "which person entity matched this phone number"
+    into "which ha_user_id to hand to elspeth_local.twilio_conversation".
+    """
+    url = "http://supervisor/core/api/states/" + person_entity_id
+    headers = {"Authorization": f"Bearer {SUPERVISOR_TOKEN}"}
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            response = await client.get(url, headers=headers)
+        if response.status_code != 200:
+            return None, None
+        state = response.json()
+    except Exception as e:
+        print(f"WARNING: could not fetch {person_entity_id}: {e}")
+        return None, None
+    attributes = state.get("attributes", {}) if isinstance(state, dict) else {}
+    ha_user_id = normalize_ha_user_id(attributes.get("user_id"), "extended_user_management")
+    display_name = attributes.get("friendly_name") or person_entity_id
+    return (ha_user_id or None), display_name
+
+
+async def find_person_by_phone(from_number: str | None):
+    """Look up the registered HA person for a caller ID via HA Extended
+    User Management's find_person_by_phone service.
+
+    Returns (ha_user_id, display_name, normalized_from). ha_user_id is
+    None when the number isn't registered to any person, when that person
+    has no phone_number set, or when that person entity isn't linked to a
+    real HA user account -- all three are treated the same: an unrecognized
+    caller.
+    """
+    normalized_from = normalize_phone_number(from_number)
+    if not normalized_from:
+        return None, None, normalized_from
+
+    result, error = await ha_websocket_request({
+        "type": "call_service",
+        "domain": "extended_user_management",
+        "service": "find_person_by_phone",
+        "service_data": {"phone_number": normalized_from},
+        "return_response": True,
+    })
+    if error:
+        print(f"WARNING: find_person_by_phone lookup failed: {error}")
+        return None, None, normalized_from
+
+    response = (result or {}).get("response") or {}
+    person_entity_id = response.get("person_entity_id")
+    if not person_entity_id:
+        return None, None, normalized_from
+
+    ha_user_id, display_name = await resolve_person_ha_user(person_entity_id)
+    return ha_user_id, display_name, normalized_from
 
 
 def log_startup_configuration():
@@ -881,6 +951,44 @@ def is_end_call_phrase(text: str) -> bool:
     return command.startswith(starts_with_phrases)
 
 
+async def send_to_elspeth_twilio_conversation(text: str, user_id: str, conversation_id: str) -> str:
+    """Hand one caller turn to Elspeth Core via the narrow, response-only
+    elspeth_local.twilio_conversation service.
+
+    Superseded send_to_home_assistant_conversation() below, which posted to
+    the generic HA conversation/process REST API -- that endpoint carries
+    no per-caller identity at all (it derives identity, if any, from the
+    Supervisor token's own HA user context, not from who is actually on the
+    phone), so Core could never distinguish one Twilio caller from another
+    or apply its self-declaration/PIN ladder per caller. This service signs
+    user_id through the same HA-side identity mapping the Home Assistant
+    voice channel uses, and Core falls back to household_unknown for any
+    unmapped/placeholder id (e.g. UNKNOWN_CALLER_HA_USER_ID).
+    """
+    result, error = await ha_websocket_request({
+        "type": "call_service",
+        "domain": "elspeth_local",
+        "service": "twilio_conversation",
+        "service_data": {
+            "text": text,
+            "conversation_id": conversation_id,
+            "ha_user_id": user_id,
+        },
+        "return_response": True,
+    })
+    if error:
+        raise RuntimeError(f"Elspeth Core request failed: {error}")
+    response = (result or {}).get("response") or {}
+    reply = response.get("reply")
+    if not reply:
+        raise RuntimeError("Elspeth Core response was missing reply text")
+    return reply
+
+
+# Superseded by send_to_elspeth_twilio_conversation() above; kept only
+# because the admin settings UI still lets an operator pick a
+# conversation_agent_id for it. Candidate for removal once that UI is
+# updated or retired -- see the end-of-build cleanup checklist.
 async def send_to_home_assistant_conversation(
     text: str,
     user_id: str,
@@ -1527,49 +1635,38 @@ async def incoming_call(
         route="/incoming_call",
         call_sid=CallSid,
     )
-    caller, normalized_from = find_caller_access_record(From)
+    ha_user_id, display_name, normalized_from = await find_person_by_phone(From)
     masked_from = mask_phone_number(normalized_from or From)
     log_timing(
         "inbound_call_received",
         call_sid=CallSid,
         runtime_mode="conversation_relay",
-        auth_mode=AUTH_MODE,
         caller=masked_from,
     )
 
-    if AUTH_MODE == "pin":
-        return prompt_for_pin(call_sid=CallSid)
-
-    if caller:
-        user_name = await resolve_ha_user_display_name(
-            caller["ha_user_id"],
-            caller.get("name"),
-        )
+    if ha_user_id:
         log_timing(
-            "caller_whitelist_matched",
+            "caller_registered_number_matched",
             call_sid=CallSid,
             caller=masked_from,
-            user_id=caller["ha_user_id"],
+            user_id=ha_user_id,
         )
-        return redirect_to_start_session(caller["ha_user_id"], user_name, CallSid)
+        return redirect_to_start_session(ha_user_id, display_name, CallSid)
 
-    if (
-        AUTH_MODE == "caller_whitelist_or_pin"
-        or UNKNOWN_CALLER_POLICY == "pin_fallback"
-    ):
-        log_timing(
-            "unknown_caller_pin_fallback",
-            call_sid=CallSid,
-            caller=masked_from,
-        )
-        return prompt_for_pin(call_sid=CallSid)
-
+    # Unrecognized number: no DTMF PIN prompt. The caller is connected
+    # straight into the same conversation-relay session as a known caller,
+    # carrying a placeholder identity that will not map to any real HA
+    # user -- Core (elspeth-core/app.py) resolves that to household_unknown
+    # and its own self-declaration + PIN elevation ladder takes over from
+    # there, spoken and turn-by-turn, exactly like the Home Assistant voice
+    # channel: "To whom am I speaking?" / stated name / "Can you verify your
+    # PIN?" / spoken PIN. Nothing else is answered until that PIN verifies.
     log_timing(
-        "unknown_caller_rejected",
+        "unknown_caller_routed_to_identity_ladder",
         call_sid=CallSid,
         caller=masked_from,
     )
-    return polite_hangup("Sorry, this number is not authorized. Goodbye.")
+    return redirect_to_start_session(UNKNOWN_CALLER_HA_USER_ID, "unknown", CallSid)
 
 
 @app.post("/check_pin")
@@ -1770,15 +1867,15 @@ async def conversation_relay_websocket(websocket: WebSocket):
                     continue
 
                 try:
-                    reply = await send_to_home_assistant_conversation(
+                    reply = await send_to_elspeth_twilio_conversation(
                         transcript,
                         user_id,
-                        conversation_id=conversation_id,
+                        conversation_id,
                     )
                 except Exception:
-                    print("Conversation Relay Home Assistant request failed.")
+                    print("Conversation Relay Elspeth Core request failed.")
                     traceback.print_exc()
-                    reply = "Sorry, Home Assistant returned an error."
+                    reply = "Sorry, Elspeth is temporarily unavailable."
 
                 await websocket.send_text(json.dumps({
                     "type": "text",

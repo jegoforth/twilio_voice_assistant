@@ -1,5 +1,15 @@
 # Twilio Voice Assistant Architecture
 
+> **Caller identity has moved.** As of the current release, caller phone
+> numbers and PINs are no longer stored or managed by this App -- they live
+> in [HA Extended User Management](https://github.com/jegoforth/ha-extended-user-management)
+> (now a required prerequisite), matched via its `find_person_by_phone`
+> service. An unrecognized caller is identified and PIN-verified through the
+> conversation agent's own spoken identity ladder, not the DTMF `/check_pin`
+> flow this document still describes below. See `README.md` and
+> `CHANGELOG.md` for the current behavior; the rest of this document is
+> pending a full rewrite to match.
+
 ## Document Role
 
 This document is the stable architecture reference for Twilio Voice Assistant.

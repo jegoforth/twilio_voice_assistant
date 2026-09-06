@@ -4,21 +4,25 @@ Release versions are mapped to immutable tags and build revisions using the [rel
 
 Call a Twilio phone number and talk to your Home Assistant voice assistant.
 
-Twilio Voice Assistant is a Home Assistant App that receives Twilio Voice calls, authenticates callers through the Caller Access UI or optional DTMF PIN fallback, sends transcript text to Home Assistant Conversation, and returns response text through Twilio Conversation Relay using a configured voice provider such as ElevenLabs.
+Twilio Voice Assistant is a Home Assistant App that receives Twilio Voice calls, resolves the caller's identity, sends transcript text to your Elspeth/Home Assistant conversation agent, and returns response text through Twilio Conversation Relay using a configured voice provider such as ElevenLabs.
 
 The App is a text bridge. It does not run local STT/TTS or generated audio-file playback.
+
+**Requires [HA Extended User Management](https://github.com/jegoforth/ha-extended-user-management).** Since the current release, caller phone numbers and PINs are no longer stored by this App at all -- they live as `phone_number`/PIN profile data on the household's own `person` entities, managed through that integration. Install and configure it first (see its README for the admin card that sets these). A known caller's number is matched via its `find_person_by_phone` service; an unrecognized caller is identified and PIN-verified through your conversation agent's own voice ladder (e.g. Elspeth Core's self-declaration + PIN elevation), not through this App's admin UI.
 
 ## Current Beta Shape
 
 - Twilio Conversation Relay only.
-- Caller Access UI only for caller identity.
-- Optional DTMF PIN fallback.
-- Home Assistant Conversation as the assistant brain.
+- Caller identity resolved via HA Extended User Management (`find_person_by_phone`), not a local caller list.
+- Unrecognized callers are identified and PIN-verified through the conversation agent's own spoken ladder -- no DTMF PIN prompt.
+- Every caller turn is handed to the conversation agent with a real per-caller identity (via `elspeth_local.twilio_conversation` when paired with Elspeth Core), not an anonymous request.
 - ElevenLabs voice through Twilio Conversation Relay.
 - Twilio webhook signature validation enabled by default.
 - Protected `/start_session` with short-lived signed session tokens.
 - Protected `/conversation_relay` websocket session setup.
 - No local audio files, no local Whisper, no local generated TTS files.
+
+The legacy Caller Access admin UI, DTMF `/check_pin` fallback, and `auth_mode`/`unknown_caller_policy` options are no longer used by `/incoming_call` and are kept only as unreached legacy code pending removal -- see `CHANGELOG.md`.
 
 ## Supported
 
@@ -27,8 +31,8 @@ The App is a text bridge. It does not run local STT/TTS or generated audio-file 
 | Home Assistant OS / Supervised | Requires Supervisor Apps. |
 | Twilio Voice webhook | Incoming call webhook points to `/incoming_call`. |
 | Twilio Conversation Relay | Used for STT event delivery and TTS playback. |
-| Caller Access UI | The only caller identity management surface. |
-| DTMF PIN fallback | Optional fallback for unknown callers. |
+| HA Extended User Management | Required. Caller identity (phone number + PIN) is managed there, not in this App. |
+| Voice-based PIN for unrecognized callers | Handled by the conversation agent's own spoken identity ladder, not DTMF. |
 | Home Assistant Conversation agents | The selected HA agent handles the request. |
 | ElevenLabs through Conversation Relay | Configure provider and voice in App options. |
 
@@ -38,7 +42,8 @@ The App is a text bridge. It does not run local STT/TTS or generated audio-file 
 | --- | --- |
 | Home Assistant Core-only installs | Supervisor Apps are required. |
 | Local Whisper | No local speech-to-text runtime is included. |
-| Speech PIN | PIN fallback is DTMF only. |
+| DTMF PIN entry | Unrecognized-caller identity is spoken PIN through the conversation agent, not DTMF. |
+| PIN/phone storage in this App | Moved to HA Extended User Management -- see Requirements. |
 | Local generated TTS audio files | Speech playback is handled by Conversation Relay. |
 | Public admin access | `/admin` and `/admin/api/*` must stay private. |
 | Non-Twilio webhook callers | Public call routes expect Twilio request signatures. |
@@ -46,7 +51,8 @@ The App is a text bridge. It does not run local STT/TTS or generated audio-file 
 ## Requirements
 
 - Home Assistant OS or Home Assistant Supervised.
-- A configured Home Assistant Conversation agent.
+- [HA Extended User Management](https://github.com/jegoforth/ha-extended-user-management) installed and configured, with `phone_number` and a PIN set for each household member who should be reachable by phone. This App has no caller-identity storage of its own anymore.
+- A configured Home Assistant Conversation agent (e.g. Elspeth Core) that supports the `elspeth_local.twilio_conversation`-style per-caller handoff, or one reachable through the generic `conversation/process` API for a caller identity managed some other way.
 - A Twilio account with:
   - An active phone number.
   - Account SID.
@@ -102,13 +108,7 @@ debug: false
 Configuration notes:
 
 - `public_base_url` must be the public HTTPS base URL Twilio uses, without a trailing slash.
-- `auth_mode` can be:
-  - `caller_whitelist`: known Caller Access numbers only.
-  - `caller_whitelist_or_pin`: known callers skip PIN; unknown callers can use PIN fallback.
-  - `pin`: every caller must use DTMF PIN fallback.
-- `unknown_caller_policy` can be:
-  - `reject`: unknown callers are rejected.
-  - `pin_fallback`: unknown callers can enter a Caller Access PIN.
+- `auth_mode` and `unknown_caller_policy` are legacy options: `/incoming_call` no longer reads them. Caller identity is now always resolved via HA Extended User Management's `find_person_by_phone`, and an unrecognized number is always routed into the conversation agent's own spoken identity ladder rather than a DTMF prompt. These options are kept only so existing configs don't fail validation, and are candidates for removal in a future release.
 - `conversation_relay_tts_provider` should be a Twilio-supported provider such as `ElevenLabs`.
 - `conversation_relay_voice` is provider/account specific. Do not assume a voice ID from another installation will work.
 - `allow_unsigned_twilio_requests_for_dev` must remain `false` for public or exposed endpoints.
@@ -152,33 +152,24 @@ In the Twilio Console:
 5. Set the method to `HTTP POST`.
 6. Save the phone number configuration.
 
-### 4. Configure Admin UI
+### 4. Register Callers In HA Extended User Management
 
-Open the App web UI from Home Assistant.
+Caller identity is no longer configured in this App's admin UI. Instead, in the HA Extended User Management admin card (Settings -> Dashboards, or wherever you've placed it):
 
-1. Select the Home Assistant conversation agent.
-2. Click **Save Settings**.
-3. In **Caller Access**, select a Home Assistant user.
-4. Enter one or more caller phone numbers in E.164 format, one per line:
+1. For each household member who should be reachable by phone, enter their `phone_number` in E.164 format (e.g. `+15551234567`) in that person's row.
+2. Make sure that person also has a PIN set -- it's the same PIN used for voice PIN step-up elsewhere, and is what an unrecognized-number caller will be asked to confirm.
 
-   ```text
-   +1XXXXXXXXXX
-   +1YYYYYYYYYY
-   ```
-
-5. Optionally enter a 4-digit fallback PIN.
-6. Click **Add Caller Access**.
-
-Caller Access stores `ha_user_id` as the stable key and resolves the display name from Home Assistant. Existing records show masked phone numbers and only `PIN set` or `No PIN`; saved PIN values are not displayed.
+There is no per-caller configuration left in this App's own web UI for this.
 
 ### 5. Make A Test Call
 
-1. Call the Twilio phone number from an allowed Caller Access number.
-2. The call should skip PIN and enter Conversation Relay.
-3. Ask Home Assistant a command or question.
-4. Home Assistant should process it through the selected conversation agent.
+1. Call the Twilio phone number from a registered number.
+2. The call should be recognized immediately and enter Conversation Relay with no PIN prompt.
+3. Ask your assistant a command or question.
+4. It should process through your configured conversation agent.
 5. Twilio should speak the response through Conversation Relay using the configured voice.
 6. To end the call, say `goodbye`, `hang up`, `end call`, `that's all`, or `I'm done`.
+7. Optionally, call again from an unregistered number: you should be asked "To whom am I speaking?", then asked to confirm your PIN by voice -- no keypad. Nothing else is answered until the PIN verifies.
 
 ## Reverse Proxy Guidance
 

@@ -844,9 +844,19 @@ def conversation_relay_twiml(
 ) -> str:
     # Preferred v2 path: text-only bridge with Twilio Conversation Relay.
     websocket_url = public_websocket_url("/conversation_relay")
+    # An unrecognized caller gets no name-based greeting at all -- user_name
+    # is only ever the literal placeholder "unknown" for this case, and
+    # asking "what would you like to do?" skips straight past the identity
+    # ladder Core is about to run. Open with the ladder's own first rung
+    # instead, matching the spoken flow exactly.
+    welcome_greeting = (
+        "Hello, this is Elspeth. To whom am I speaking?"
+        if user_id == UNKNOWN_CALLER_HA_USER_ID
+        else f"Hello {user_name}. What would you like to do?"
+    )
     attrs = {
         "url": websocket_url,
-        "welcomeGreeting": f"Hello {user_name}. What would you like to do?",
+        "welcomeGreeting": welcome_greeting,
         "language": CONVERSATION_RELAY_LANGUAGE,
         "ttsProvider": CONVERSATION_RELAY_TTS_PROVIDER,
         "transcriptionProvider": CONVERSATION_RELAY_TRANSCRIPTION_PROVIDER,

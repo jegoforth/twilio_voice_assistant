@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.5.1
+
+- Fix: an unrecognized caller's opening greeting said "Hello unknown. What
+  would you like to do?" -- a leftover placeholder value spoken aloud, and
+  a prompt that skipped past the identity ladder entirely. Now opens with
+  "Hello, this is Elspeth. To whom am I speaking?" for that case, matching
+  the actual voice flow. Known callers are unaffected.
+
 ## 1.5.0
 
 - **Requires [HA Extended User Management](https://github.com/jegoforth/ha-extended-user-management)**, a separate Home Assistant integration. Install and configure it (set each household member's `phone_number` and PIN) before this release.

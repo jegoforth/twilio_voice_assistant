@@ -1,6 +1,6 @@
 {
   "name": "Twilio Voice Assistant",
-  "version": "1.5.0",
+  "version": "1.5.1",
   "slug": "twilio_voice_assistant",
   "description": "Twilio Conversation Relay app with caller identity via HA Extended User Management, spoken PIN verification for unrecognized callers, ElevenLabs voice support, and Home Assistant Conversation integration.",
   "arch": ["amd64", "aarch64"],

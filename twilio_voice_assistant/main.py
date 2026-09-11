@@ -1,6 +1,6 @@
 from fastapi import FastAPI, Form, Request, WebSocket, WebSocketDisconnect
 from fastapi import HTTPException
-from fastapi.responses import Response, HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import Response
 import httpx
 import websockets
 import asyncio
@@ -15,8 +15,6 @@ import time
 from contextlib import asynccontextmanager
 from html import escape
 from urllib.parse import quote
-
-INGRESS_PROXY_IP = "172.30.32.2"
 
 # Load configuration from environment
 TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID")
@@ -369,18 +367,6 @@ async def lifespan(app: FastAPI):
 app = FastAPI(lifespan=lifespan)
 
 
-def require_ingress(request: Request):
-    """Restrict admin UI/API to Home Assistant Ingress."""
-    client_host = request.client.host if request.client else ""
-    has_ingress_header = (
-        request.headers.get("x-ingress-path")
-        or request.headers.get("x-supervisor-ingress")
-    )
-    if client_host == INGRESS_PROXY_IP and has_ingress_header:
-        return
-    raise HTTPException(status_code=404)
-
-
 @asynccontextmanager
 async def websocket_connect(url: str):
     """Connect to Home Assistant websocket across supported websockets versions."""
@@ -442,38 +428,6 @@ async def ha_websocket_request(message):
             print(f"Error sending websocket request to {endpoint}: {e}")
 
     return None, last_error or "Could not call Home Assistant websocket API"
-
-
-async def fetch_ha_users():
-    """Fetch Home Assistant users via the admin-only websocket auth API."""
-    users, error = await ha_websocket_request({"type": "config/auth/list"})
-    if error:
-        return [], error
-
-    users = users or []
-    filtered_users = [
-        {
-            "id": user.get("id"),
-            "name": user.get("name") or user.get("username") or user.get("id"),
-        }
-        for user in users
-        if user.get("id") and not user.get("system_generated", False)
-    ]
-    print(f"Found {len(filtered_users)} users")
-    return filtered_users, None
-
-
-async def resolve_ha_user_display_name(
-    user_id: str,
-    configured_name: str | None = None,
-) -> str:
-    users, error = await fetch_ha_users()
-    if error:
-        print(f"Could not resolve Home Assistant user display name: {error}")
-        return configured_name or user_id
-
-    user_map = {user["id"]: user["name"] for user in users}
-    return user_map.get(user_id) or configured_name or user_id
 
 
 def twiml_response(xml: str):
@@ -717,137 +671,9 @@ async def send_to_elspeth_twilio_conversation(text: str, user_id: str, conversat
     return reply
 
 
-# Admin UI endpoints
 @app.get("/")
 async def root():
-    return RedirectResponse(url="/admin")
-
-
-@app.get("/admin", response_class=HTMLResponse)
-async def admin_ui(request: Request):
-    """Serve the admin UI"""
-    require_ingress(request)
-    html = """
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <title>Twilio Voice Assistant - Admin</title>
-        <style>
-            * { margin: 0; padding: 0; box-sizing: border-box; }
-            body {
-                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                min-height: 100vh;
-                padding: 20px;
-            }
-            .container {
-                max-width: 600px;
-                margin: 0 auto;
-                background: white;
-                border-radius: 8px;
-                box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
-                padding: 30px;
-            }
-            h1 {
-                color: #333;
-                margin-bottom: 30px;
-                font-size: 28px;
-            }
-            .form-section {
-                margin-bottom: 30px;
-                padding: 20px;
-                background: #f8f9fa;
-                border-radius: 6px;
-            }
-            .form-group {
-                margin-bottom: 15px;
-            }
-            label {
-                display: block;
-                margin-bottom: 5px;
-                font-weight: 600;
-                color: #555;
-                font-size: 14px;
-            }
-            input[type="text"], select, textarea {
-                width: 100%;
-                padding: 10px;
-                border: 1px solid #ddd;
-                border-radius: 4px;
-                font-size: 14px;
-                font-family: inherit;
-            }
-            textarea {
-                min-height: 86px;
-                resize: vertical;
-            }
-            input[type="text"]:focus, select:focus, textarea:focus {
-                outline: none;
-                border-color: #667eea;
-                box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
-            }
-            button {
-                background: #667eea;
-                color: white;
-                padding: 10px 20px;
-                border: none;
-                border-radius: 4px;
-                font-size: 14px;
-                font-weight: 600;
-                cursor: pointer;
-                transition: background 0.2s;
-            }
-            button:hover {
-                background: #5568d3;
-            }
-            details summary {
-                cursor: pointer;
-                font-weight: 700;
-                color: #333;
-                margin-bottom: 15px;
-            }
-            .loading {
-                opacity: 0.6;
-                cursor: wait;
-            }
-        </style>
-    </head>
-    <body>
-        <div class="container">
-            <h1>Twilio Voice Assistant</h1>
-
-            <div class="form-section">
-                <p style="color: #555; font-size: 14px; line-height: 1.5;">
-                    Caller identity is resolved automatically via Home Assistant
-                    Extended User Management (phone number &rarr; registered person).
-                    An unrecognized caller is connected directly to Elspeth, who asks
-                    who is speaking and verifies a household PIN as needed &mdash; the
-                    same identity ladder used on every other voice channel in the
-                    house. Nothing here needs configuring.
-                </p>
-            </div>
-
-        </div>
-    </body>
-    </html>
-    """
-    return html
-
-
-@app.get("//admin", response_class=HTMLResponse)
-async def admin_ui_double_slash(request: Request):
-    return await admin_ui(request)
-
-
-@app.get("/admin/api/users")
-async def get_users(request: Request):
-    """Get list of Home Assistant users"""
-    require_ingress(request)
-    users, error = await fetch_ha_users()
-    response = {"users": users}
-    if error:
-        response["error"] = error
-    return response
+    return {"status": "ok"}
 
 
 # Twilio webhook endpoints
@@ -1135,21 +961,6 @@ async def conversation_relay_status(
         <Hangup/>
     </Response>
     """)
-
-
-@app.get("/admin/debug")
-async def debug(request: Request):
-    """Debug endpoint - check configuration"""
-    require_ingress(request)
-    token_set = bool(SUPERVISOR_TOKEN)
-    users, error = await fetch_ha_users()
-    
-    return {
-        "supervisor_token_set": token_set,
-        "user_count": len(users),
-        "user_error": error,
-        "debug_mode": DEBUG
-    }
 
 
 if __name__ == "__main__":

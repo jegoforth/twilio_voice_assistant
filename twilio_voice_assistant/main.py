@@ -36,6 +36,11 @@ CONVERSATION_RELAY_TRANSCRIPTION_PROVIDER = os.getenv(
 CONVERSATION_RELAY_LANGUAGE = os.getenv(
     "CONVERSATION_RELAY_LANGUAGE", "en-US"
 ).strip()
+# Empty by default: elspeth_local.twilio_conversation is used, carrying real
+# per-caller identity. Set only by a community deployment without
+# elspeth_local installed, naming whatever HA conversation agent they want
+# calls routed to instead -- see send_to_home_assistant_conversation().
+CONVERSATION_AGENT_ID = os.getenv("CONVERSATION_AGENT_ID", "").strip()
 ALLOW_UNSIGNED_TWILIO_REQUESTS_FOR_DEV = (
     os.getenv("ALLOW_UNSIGNED_TWILIO_REQUESTS_FOR_DEV", "false").strip().lower()
     in {"1", "true", "yes", "on"}
@@ -334,6 +339,7 @@ def log_startup_configuration():
         ),
         conversation_relay_language=CONVERSATION_RELAY_LANGUAGE,
         conversation_relay_voice_configured=bool(CONVERSATION_RELAY_VOICE),
+        conversation_route=("generic_ha_agent" if CONVERSATION_AGENT_ID else "elspeth_local"),
         local_audio_pipeline="removed",
         twilio_signature_validation_enabled=(
             not ALLOW_UNSIGNED_TWILIO_REQUESTS_FOR_DEV
@@ -602,19 +608,94 @@ def is_end_call_phrase(text: str) -> bool:
     return command.startswith(starts_with_phrases)
 
 
+async def send_to_home_assistant_conversation(
+    text: str,
+    user_id: str,
+    conversation_id: str | None = None,
+) -> str:
+    """Send text to a plain Home Assistant conversation agent.
+
+    Only used when CONVERSATION_AGENT_ID is set -- a community deployment
+    without elspeth_local installed, naming whichever HA conversation agent
+    they want calls routed to. Unlike send_to_elspeth_twilio_conversation()
+    below, this generic HA conversation/process REST API carries no
+    per-caller identity at all (it derives identity, if any, from the
+    Supervisor token's own HA user context, not from who is actually on the
+    phone), so it cannot distinguish one Twilio caller from another or apply
+    a self-declaration/PIN ladder per caller -- that's the tradeoff of not
+    having elspeth_local installed.
+    """
+    ha_url = "http://supervisor/core/api/conversation/process"
+    headers = {
+        "Authorization": f"Bearer {SUPERVISOR_TOKEN}",
+        "Content-Type": "application/json",
+    }
+    payload = {
+        "text": text,
+        "conversation_id": conversation_id or f"twilio_{user_id}",
+        "language": "en",
+        "agent_id": CONVERSATION_AGENT_ID,
+    }
+
+    log_timing(
+        "home_assistant_conversation_request_started",
+        user_id=user_id,
+        conversation_id=payload["conversation_id"],
+        text_length=len(text),
+    )
+    debug_log(
+        "home_assistant_conversation_request",
+        user_id=user_id,
+        conversation_id=payload["conversation_id"],
+        agent_id=CONVERSATION_AGENT_ID,
+        text_length=len(text),
+    )
+
+    async with httpx.AsyncClient(timeout=30) as client:
+        ha_raw = await client.post(ha_url, json=payload, headers=headers)
+
+    log_timing(
+        "home_assistant_conversation_response_received",
+        user_id=user_id,
+        conversation_id=payload["conversation_id"],
+        status_code=ha_raw.status_code,
+    )
+
+    if ha_raw.status_code < 200 or ha_raw.status_code >= 300:
+        raise RuntimeError(f"Home Assistant returned {ha_raw.status_code}")
+
+    try:
+        ha_response = ha_raw.json()
+    except Exception as exc:
+        raise RuntimeError("Home Assistant did not return valid JSON") from exc
+
+    reply = (
+        ha_response
+        .get("response", {})
+        .get("speech", {})
+        .get("plain", {})
+        .get("speech")
+    )
+
+    if not reply:
+        debug_log("home_assistant_unexpected_response_shape")
+        reply = "I heard you, but Home Assistant did not provide a spoken response."
+
+    return reply
+
+
 async def send_to_elspeth_twilio_conversation(text: str, user_id: str, conversation_id: str) -> str:
     """Hand one caller turn to Elspeth Core via the narrow, response-only
     elspeth_local.twilio_conversation service.
 
-    Superseded a now-removed helper that posted to the generic HA
-    conversation/process REST API -- that endpoint carries no per-caller
-    identity at all (it derives identity, if any, from the
-    Supervisor token's own HA user context, not from who is actually on the
-    phone), so Core could never distinguish one Twilio caller from another
-    or apply its self-declaration/PIN ladder per caller. This service signs
-    user_id through the same HA-side identity mapping the Home Assistant
-    voice channel uses, and Core falls back to household_unknown for any
-    unmapped/placeholder id (e.g. UNKNOWN_CALLER_HA_USER_ID).
+    This is the default path (used whenever CONVERSATION_AGENT_ID is
+    unset). It signs user_id through the same HA-side identity mapping the
+    Home Assistant voice channel uses, so Core can tell one Twilio caller
+    from another and apply its self-declaration/PIN ladder per caller --
+    Core falls back to household_unknown for any unmapped/placeholder id
+    (e.g. UNKNOWN_CALLER_HA_USER_ID). send_to_home_assistant_conversation()
+    above is the fallback for a community deployment without elspeth_local
+    installed, which cannot offer that per-caller identity.
     """
     result, error = await ha_websocket_request({
         "type": "call_service",
@@ -979,11 +1060,18 @@ async def conversation_relay_websocket(websocket: WebSocket):
                     continue
 
                 try:
-                    reply = await send_to_elspeth_twilio_conversation(
-                        transcript,
-                        user_id,
-                        conversation_id,
-                    )
+                    if CONVERSATION_AGENT_ID:
+                        reply = await send_to_home_assistant_conversation(
+                            transcript,
+                            user_id,
+                            conversation_id,
+                        )
+                    else:
+                        reply = await send_to_elspeth_twilio_conversation(
+                            transcript,
+                            user_id,
+                            conversation_id,
+                        )
                 except Exception:
                     print("Conversation Relay Elspeth Core request failed.")
                     traceback.print_exc()

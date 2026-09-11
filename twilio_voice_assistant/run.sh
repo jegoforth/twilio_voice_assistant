@@ -33,6 +33,9 @@ public_base_url = str(config.get('public_base_url', '')).strip().rstrip('/')
 if public_base_url and not public_base_url.startswith(('http://', 'https://')):
     public_base_url = f'https://{public_base_url}'
 os.environ['PUBLIC_BASE_URL'] = public_base_url
+os.environ['CONVERSATION_AGENT_ID'] = str(
+    config.get('conversation_agent_id', '')
+).strip()
 os.environ['CONVERSATION_RELAY_TTS_PROVIDER'] = str(
     config.get('conversation_relay_tts_provider', 'ElevenLabs')
 ).strip()

@@ -1,7 +1,6 @@
 from fastapi import FastAPI, Form, Request, WebSocket, WebSocketDisconnect
 from fastapi import HTTPException
 from fastapi.responses import Response, HTMLResponse, JSONResponse, RedirectResponse
-from pydantic import BaseModel
 import httpx
 import websockets
 import asyncio
@@ -17,7 +16,6 @@ from contextlib import asynccontextmanager
 from html import escape
 from urllib.parse import quote
 
-DATA_DIR = "/share/twilio_voice_assistant"
 INGRESS_PROXY_IP = "172.30.32.2"
 
 # Load configuration from environment
@@ -28,8 +26,6 @@ PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "").rstrip("/")
 if PUBLIC_BASE_URL and not PUBLIC_BASE_URL.startswith(("http://", "https://")):
     PUBLIC_BASE_URL = f"https://{PUBLIC_BASE_URL}"
 DEBUG = os.getenv("DEBUG", "false").lower() == "true"
-AUTH_MODE = os.getenv("AUTH_MODE", "pin").strip().lower()
-UNKNOWN_CALLER_POLICY = os.getenv("UNKNOWN_CALLER_POLICY", "reject").strip().lower()
 CONVERSATION_RELAY_TTS_PROVIDER = os.getenv(
     "CONVERSATION_RELAY_TTS_PROVIDER", "ElevenLabs"
 ).strip()
@@ -51,29 +47,6 @@ SESSION_TOKEN_TTL_SECONDS = 120
 # it and elspeth_local's client.py falls back to household_unknown -- Core
 # then drives its own self-declaration + PIN elevation ladder from there.
 UNKNOWN_CALLER_HA_USER_ID = "twilio_unrecognized_caller"
-
-SUPPORTED_AUTH_MODES = {
-    "caller_whitelist",
-    "pin",
-    "caller_whitelist_or_pin",
-}
-if AUTH_MODE not in SUPPORTED_AUTH_MODES:
-    print(
-        "WARNING: Unsupported auth_mode "
-        f"{AUTH_MODE!r}; falling back to 'pin'"
-    )
-    AUTH_MODE = "pin"
-
-SUPPORTED_UNKNOWN_CALLER_POLICIES = {
-    "reject",
-    "pin_fallback",
-}
-if UNKNOWN_CALLER_POLICY not in SUPPORTED_UNKNOWN_CALLER_POLICIES:
-    print(
-        "WARNING: Unsupported unknown_caller_policy "
-        f"{UNKNOWN_CALLER_POLICY!r}; falling back to 'reject'"
-    )
-    UNKNOWN_CALLER_POLICY = "reject"
 
 SUPPORTED_CONVERSATION_RELAY_TTS_PROVIDERS = {
     "ElevenLabs",
@@ -103,10 +76,6 @@ if missing_vars:
         f"Missing required configuration: {', '.join(missing_vars)}. "
         "Please configure the addon with your API credentials."
     )
-
-# Current Caller Access storage. This is the preferred admin-managed identity path.
-SETTINGS_FILE = f"{DATA_DIR}/settings.json"
-CALLERS_FILE = f"{DATA_DIR}/callers.json"
 
 def log_timing(event: str, **fields):
     """Emit structured timing logs without secrets, PINs, or transcript text."""
@@ -275,35 +244,6 @@ def normalize_phone_number(phone_number: str | None) -> str | None:
     return f"+{digits}"
 
 
-def caller_phone_numbers(caller: dict) -> list[str]:
-    """Return legacy and preferred caller numbers without logging them."""
-    raw_numbers = []
-    legacy_number = caller.get("phone_number")
-    if legacy_number:
-        raw_numbers.append(legacy_number)
-
-    phone_numbers = caller.get("phone_numbers") or []
-    if isinstance(phone_numbers, str):
-        raw_numbers.append(phone_numbers)
-    elif isinstance(phone_numbers, list):
-        raw_numbers.extend(phone_numbers)
-
-    return [number for number in raw_numbers if isinstance(number, str)]
-
-
-def load_json_list(value: str, config_name: str) -> list:
-    try:
-        parsed = json.loads(value)
-    except Exception as e:
-        print(f"WARNING: Could not parse {config_name}: {e}")
-        return []
-
-    if not isinstance(parsed, list):
-        print(f"WARNING: {config_name} must be a list; ignoring configured value")
-        return []
-    return parsed
-
-
 def normalize_ha_user_id(user_id: str | None, config_name: str) -> str:
     normalized = (user_id or "").strip()
     if normalized.startswith("<") and normalized.endswith(">"):
@@ -315,115 +255,13 @@ def normalize_ha_user_id(user_id: str | None, config_name: str) -> str:
     return normalized
 
 
-def normalize_callers_for_lookup(callers, config_name: str):
-    """Parse caller identity records into a flat phone-number lookup."""
-    if not isinstance(callers, list):
-        print(f"WARNING: {config_name} must be a list; ignoring configured value")
-        return [], 0
-
-    normalized_callers = []
-    valid_caller_records = 0
-    for caller in callers:
-        if not isinstance(caller, dict):
-            continue
-        ha_user_id = normalize_ha_user_id(caller.get("ha_user_id"), config_name)
-        if not ha_user_id:
-            continue
-        caller_name = (caller.get("name") or "").strip()
-        normalized_numbers = {
-            normalized_number
-            for raw_number in caller_phone_numbers(caller)
-            if (normalized_number := normalize_phone_number(raw_number))
-        }
-        if not normalized_numbers:
-            continue
-
-        valid_caller_records += 1
-        for normalized_number in normalized_numbers:
-            normalized_callers.append({
-                "name": caller_name,
-                "phone_number": normalized_number,
-                "ha_user_id": ha_user_id,
-            })
-    return normalized_callers, valid_caller_records
 
 
-def load_admin_caller_identity_records():
-    try:
-        if os.path.exists(CALLERS_FILE):
-            with open(CALLERS_FILE, "r") as f:
-                callers = json.load(f)
-            if isinstance(callers, list):
-                return callers
-            print("WARNING: callers admin storage must be a list; ignoring saved value")
-    except Exception as e:
-        print(f"WARNING: Could not load callers admin storage: {e}")
-    return []
-
-
-def save_admin_caller_identity_records(callers):
-    try:
-        os.makedirs(DATA_DIR, exist_ok=True)
-        with open(CALLERS_FILE, "w") as f:
-            json.dump(callers, f, indent=2)
-        return True
-    except Exception as e:
-        print(f"ERROR: Could not save callers admin storage: {e}")
-        return False
-
-
-def load_caller_identity_records():
-    return load_admin_caller_identity_records()
-
-
-def load_caller_access_lookup():
-    """Build the effective caller lookup from Caller Access and import records."""
-    caller_records = load_caller_identity_records()
-    callers, caller_count = normalize_callers_for_lookup(caller_records, "callers")
-    return callers, caller_count
-
-
-def load_caller_access_pins():
-    pin_lookup = {}
-    for caller in load_caller_identity_records():
-        if not isinstance(caller, dict):
-            continue
-        pin = str(caller.get("pin", "")).strip()
-        if not pin:
-            continue
-        if not pin.isdigit() or len(pin) != 4:
-            print("WARNING: callers PIN entries must be 4 digits; ignoring one entry")
-            continue
-        ha_user_id = normalize_ha_user_id(caller.get("ha_user_id"), "callers")
-        if not ha_user_id:
-            continue
-        caller_name = (caller.get("name") or "").strip()
-        pin_lookup[pin] = {
-            "user_id": ha_user_id,
-            "user_name": caller_name,
-        }
-    return pin_lookup
-
-
-CALLER_ACCESS_LOOKUP, CALLER_ACCESS_RECORD_COUNT = load_caller_access_lookup()
-
-
-def find_caller_access_record(from_number: str | None):
-    global CALLER_ACCESS_LOOKUP, CALLER_ACCESS_RECORD_COUNT
-    CALLER_ACCESS_LOOKUP, CALLER_ACCESS_RECORD_COUNT = load_caller_access_lookup()
-    normalized_from = normalize_phone_number(from_number)
-    if not normalized_from:
-        return None, normalized_from
-    for caller in CALLER_ACCESS_LOOKUP:
-        if caller["phone_number"] == normalized_from:
-            return caller, normalized_from
-    return None, normalized_from
-
-
-# Superseded phone-number lookup: phone numbers now live in HA Extended User
-# Management (a phone_number profile value on the person's own record) so
-# there is one source of truth shared with the PIN itself, instead of this
-# app's own plaintext callers.json. See find_person_by_phone() below.
+# Phone numbers live in HA Extended User Management (a phone_number profile
+# value on the person's own record), the one source of truth shared with the
+# PIN itself -- this app used to keep its own separate, plaintext
+# callers.json for the same purpose; see find_person_by_phone() below for
+# the live lookup.
 async def resolve_person_ha_user(person_entity_id: str):
     """Read a person entity's own user_id/friendly_name attributes.
 
@@ -487,18 +325,15 @@ async def find_person_by_phone(from_number: str | None):
 def log_startup_configuration():
     log_timing(
         "startup_configuration",
-        auth_mode=AUTH_MODE,
-        unknown_caller_policy=UNKNOWN_CALLER_POLICY,
         runtime_mode="conversation_relay_only",
-        pin_fallback="dtmf",
+        caller_identity_source="ha_extended_user_management",
+        unrecognized_caller_auth="spoken_self_declaration_and_pin",
         conversation_relay_tts_provider=CONVERSATION_RELAY_TTS_PROVIDER,
         conversation_relay_transcription_provider=(
             CONVERSATION_RELAY_TRANSCRIPTION_PROVIDER
         ),
         conversation_relay_language=CONVERSATION_RELAY_LANGUAGE,
         conversation_relay_voice_configured=bool(CONVERSATION_RELAY_VOICE),
-        caller_identity_source="caller_access",
-        caller_access_records_count=CALLER_ACCESS_RECORD_COUNT,
         local_audio_pipeline="removed",
         twilio_signature_validation_enabled=(
             not ALLOW_UNSIGNED_TWILIO_REQUESTS_FOR_DEV
@@ -528,17 +363,6 @@ async def lifespan(app: FastAPI):
 app = FastAPI(lifespan=lifespan)
 
 
-# Request models for Caller Access and admin settings.
-class CallerAccessRequest(BaseModel):
-    ha_user_id: str
-    phone_numbers: list[str]
-    pin: str | None = None
-
-
-class SettingsRequest(BaseModel):
-    conversation_agent_id: str | None = None
-
-
 def require_ingress(request: Request):
     """Restrict admin UI/API to Home Assistant Ingress."""
     client_host = request.client.host if request.client else ""
@@ -549,99 +373,6 @@ def require_ingress(request: Request):
     if client_host == INGRESS_PROXY_IP and has_ingress_header:
         return
     raise HTTPException(status_code=404)
-
-
-def load_settings():
-    """Load admin settings from JSON file."""
-    defaults = {
-        "conversation_agent_id": "",
-    }
-    try:
-        migrate_legacy_file("/share/twilio_voice_assistant_settings.json", SETTINGS_FILE)
-        if os.path.exists(SETTINGS_FILE):
-            with open(SETTINGS_FILE, "r") as f:
-                settings = json.load(f)
-            return {**defaults, **settings}
-    except Exception as e:
-        print(f"WARNING: Could not load settings from file: {e}")
-    return defaults
-
-
-def migrate_legacy_file(old_path, new_path):
-    if os.path.exists(new_path) or not os.path.exists(old_path):
-        return
-    try:
-        os.makedirs(os.path.dirname(new_path), exist_ok=True)
-        with open(old_path, "r") as src:
-            data = json.load(src)
-        with open(new_path, "w") as dest:
-            json.dump(data, dest, indent=2)
-        os.remove(old_path)
-        print(f"Migrated {old_path} to {new_path}")
-    except Exception as e:
-        print(f"WARNING: Could not migrate {old_path}: {e}")
-
-
-def save_settings(settings):
-    """Save admin settings to JSON file."""
-    try:
-        os.makedirs("/share", exist_ok=True)
-        with open(SETTINGS_FILE, "w") as f:
-            json.dump(settings, f, indent=2)
-        return True
-    except Exception as e:
-        print(f"ERROR: Could not save settings: {e}")
-        return False
-
-
-def caller_record_display(record: dict, index: int | None, source: str, user_map: dict):
-    user_id = normalize_ha_user_id(record.get("ha_user_id"), source)
-    configured_name = (record.get("name") or "").strip()
-    display_name = user_map.get(user_id) or configured_name or user_id
-    normalized_numbers = [
-        normalized
-        for raw_number in caller_phone_numbers(record)
-        if (normalized := normalize_phone_number(raw_number))
-    ]
-    return {
-        "index": index,
-        "source": source,
-        "ha_user_id": user_id,
-        "display_name": display_name,
-        "masked_phone_numbers": [
-            mask_phone_number(number)
-            for number in normalized_numbers
-        ],
-        "pin_set": bool(str(record.get("pin", "")).strip()),
-        "deletable": source == "admin",
-    }
-
-
-def normalize_caller_access_request(caller_request: CallerAccessRequest):
-    user_id = normalize_ha_user_id(caller_request.ha_user_id, "callers")
-    if not user_id:
-        return None, "Home Assistant user is required"
-
-    normalized_numbers = []
-    for phone_number in caller_request.phone_numbers or []:
-        normalized_number = normalize_phone_number(phone_number)
-        if normalized_number and normalized_number not in normalized_numbers:
-            normalized_numbers.append(normalized_number)
-
-    if not normalized_numbers:
-        return None, "At least one phone number is required"
-
-    pin = str(caller_request.pin or "").strip()
-    if pin and (not pin.isdigit() or len(pin) != 4):
-        return None, "Fallback PIN must be exactly 4 digits"
-
-    record = {
-        "ha_user_id": user_id,
-        "phone_numbers": normalized_numbers,
-    }
-    if pin:
-        record["pin"] = pin
-    return record, None
 
 
 @asynccontextmanager
@@ -726,49 +457,6 @@ async def fetch_ha_users():
     return filtered_users, None
 
 
-async def fetch_conversation_agents():
-    """Fetch available Home Assistant conversation agents."""
-    result, error = await ha_websocket_request({"type": "conversation/agent/list"})
-    if error:
-        return [], error
-
-    raw_agents = result.get("agents", result) if isinstance(result, dict) else result
-    agents = []
-    for agent in raw_agents:
-        if isinstance(agent, str):
-            agents.append({"id": agent, "name": agent})
-            continue
-        if not isinstance(agent, dict):
-            continue
-        agent_id = agent.get("id") or agent.get("agent_id")
-        if agent_id:
-            agents.append({
-                "id": agent_id,
-                "name": agent.get("name") or agent_id,
-            })
-    return agents, None
-
-
-def caller_access_pin_user_id(pin_entry):
-    if isinstance(pin_entry, dict):
-        return pin_entry.get("user_id")
-    return pin_entry
-
-
-def caller_access_pin_user_name(pin_entry, user_map):
-    user_id = caller_access_pin_user_id(pin_entry)
-    resolved_user_name = user_map.get(user_id)
-    if resolved_user_name:
-        return resolved_user_name
-
-    if isinstance(pin_entry, dict):
-        user_name = pin_entry.get("user_name") or pin_entry.get("name")
-        if user_name:
-            return user_name
-
-    return user_id
-
-
 async def resolve_ha_user_display_name(
     user_id: str,
     configured_name: str | None = None,
@@ -780,11 +468,6 @@ async def resolve_ha_user_display_name(
 
     user_map = {user["id"]: user["name"] for user in users}
     return user_map.get(user_id) or configured_name or user_id
-
-
-if DEBUG:
-    print(f"Loaded Caller Access PIN entries: {len(load_caller_access_pins())}")
-    print(f"Loaded settings: {load_settings()}")
 
 
 def twiml_response(xml: str):
@@ -804,20 +487,6 @@ def polite_hangup(message: str = "Goodbye."):
     return twiml_response(f"""
     <Response>
         <Say>{message}</Say>
-        <Hangup/>
-    </Response>
-    """)
-
-
-def prompt_for_pin(call_sid: str | None = None):
-    # Fallback auth path. Caller Access normally bypasses this for known callers.
-    log_timing("pin_prompt_sent", call_sid=call_sid, pin_method="dtmf")
-    return twiml_response("""
-    <Response>
-        <Gather input="dtmf" numDigits="4" timeout="10" action="/check_pin" method="POST">
-            <Say>Please enter your four digit PIN.</Say>
-        </Gather>
-        <Say>I did not receive a PIN. Goodbye.</Say>
         <Hangup/>
     </Response>
     """)
@@ -885,34 +554,6 @@ def conversation_relay_twiml(
     """
 
 
-def normalize_digits(text: str) -> str:
-    text = text.lower()
-
-    replacements = {
-        "zero": "0",
-        "oh": "0",
-        "one": "1",
-        "won": "1",
-        "two": "2",
-        "too": "2",
-        "to": "2",
-        "three": "3",
-        "four": "4",
-        "for": "4",
-        "five": "5",
-        "six": "6",
-        "seven": "7",
-        "eight": "8",
-        "ate": "8",
-        "nine": "9",
-    }
-
-    for word, digit in replacements.items():
-        text = re.sub(rf"\b{word}\b", digit, text)
-
-    return re.sub(r"[^0-9]", "", text)
-
-
 def normalize_command(text: str) -> str:
     text = text.lower()
     text = re.sub(r"[^a-z0-9\s']", " ", text)
@@ -965,9 +606,9 @@ async def send_to_elspeth_twilio_conversation(text: str, user_id: str, conversat
     """Hand one caller turn to Elspeth Core via the narrow, response-only
     elspeth_local.twilio_conversation service.
 
-    Superseded send_to_home_assistant_conversation() below, which posted to
-    the generic HA conversation/process REST API -- that endpoint carries
-    no per-caller identity at all (it derives identity, if any, from the
+    Superseded a now-removed helper that posted to the generic HA
+    conversation/process REST API -- that endpoint carries no per-caller
+    identity at all (it derives identity, if any, from the
     Supervisor token's own HA user context, not from who is actually on the
     phone), so Core could never distinguish one Twilio caller from another
     or apply its self-declaration/PIN ladder per caller. This service signs
@@ -995,126 +636,6 @@ async def send_to_elspeth_twilio_conversation(text: str, user_id: str, conversat
     return reply
 
 
-# Superseded by send_to_elspeth_twilio_conversation() above; kept only
-# because the admin settings UI still lets an operator pick a
-# conversation_agent_id for it. Candidate for removal once that UI is
-# updated or retired -- see the end-of-build cleanup checklist.
-async def send_to_home_assistant_conversation(
-    text: str,
-    user_id: str,
-    conversation_id: str | None = None,
-):
-    """Send text to Home Assistant Conversation and return spoken reply text."""
-    ha_url = "http://supervisor/core/api/conversation/process"
-    headers = {
-        "Authorization": f"Bearer {SUPERVISOR_TOKEN}",
-        "Content-Type": "application/json",
-    }
-
-    settings = load_settings()
-    payload = {
-        "text": text,
-        "conversation_id": conversation_id or f"twilio_{user_id}",
-        "language": "en",
-    }
-    if settings.get("conversation_agent_id"):
-        payload["agent_id"] = settings["conversation_agent_id"]
-
-    log_timing(
-        "home_assistant_conversation_request_started",
-        user_id=user_id,
-        conversation_id=payload["conversation_id"],
-        text_length=len(text),
-    )
-    debug_log(
-        "home_assistant_conversation_request",
-        user_id=user_id,
-        conversation_id=payload["conversation_id"],
-        has_agent_id=bool(payload.get("agent_id")),
-        text_length=len(text),
-    )
-
-    async with httpx.AsyncClient(timeout=30) as client:
-        ha_raw = await client.post(
-            ha_url,
-            json=payload,
-            headers=headers,
-        )
-
-    log_timing(
-        "home_assistant_conversation_response_received",
-        user_id=user_id,
-        conversation_id=payload["conversation_id"],
-        status_code=ha_raw.status_code,
-    )
-    debug_log(
-        "home_assistant_conversation_response",
-        status_code=ha_raw.status_code,
-        content_type=ha_raw.headers.get("content-type"),
-    )
-
-    if ha_raw.status_code < 200 or ha_raw.status_code >= 300:
-        raise RuntimeError(f"Home Assistant returned {ha_raw.status_code}")
-
-    try:
-        ha_response = ha_raw.json()
-    except Exception as exc:
-        raise RuntimeError("Home Assistant did not return valid JSON") from exc
-
-    reply = (
-        ha_response
-        .get("response", {})
-        .get("speech", {})
-        .get("plain", {})
-        .get("speech")
-    )
-
-    if not reply:
-        debug_log("home_assistant_unexpected_response_shape")
-        reply = "I heard you, but Home Assistant did not provide a spoken response."
-
-    return reply
-
-
-async def handle_pin_digits(digits: str, call_sid: str | None = None):
-    digits = normalize_digits(digits)
-    pin_lookup = load_caller_access_pins()
-
-    if DEBUG:
-        print(f"PIN received with {len(digits)} digits")
-
-    pin_entry = pin_lookup.get(digits)
-    if pin_entry:
-        users, error = await fetch_ha_users()
-        if error:
-            print(f"Could not resolve user name after PIN auth: {error}")
-
-        user_map = {user["id"]: user["name"] for user in users}
-        user_id = caller_access_pin_user_id(pin_entry)
-        user_name = caller_access_pin_user_name(pin_entry, user_map)
-        session_token = create_session_token(user_id, user_name, call_sid)
-        encoded_session_token = quote(session_token)
-        log_timing(
-            "pin_accepted",
-            call_sid=call_sid,
-            user_id=user_id,
-            runtime_mode="conversation_relay",
-        )
-        return twiml_response(f"""
-        <Response>
-            <Say>Thank you. Connecting you now.</Say>
-            <Redirect>/start_session?session_token={encoded_session_token}</Redirect>
-        </Response>
-        """)
-
-    return twiml_response("""
-    <Response>
-        <Say>Incorrect PIN. Please try again.</Say>
-        <Redirect>/incoming_call</Redirect>
-    </Response>
-    """)
-
-
 # Admin UI endpoints
 @app.get("/")
 async def root():
@@ -1125,8 +646,6 @@ async def root():
 async def admin_ui(request: Request):
     """Serve the admin UI"""
     require_ingress(request)
-    ingress_path = request.headers.get("x-ingress-path", "").rstrip("/")
-    admin_api_base = f"{ingress_path}/admin/api" if ingress_path else "/admin/api"
     html = """
     <!DOCTYPE html>
     <html>
@@ -1200,72 +719,11 @@ async def admin_ui(request: Request):
             button:hover {
                 background: #5568d3;
             }
-            button.delete {
-                background: #dc3545;
-                padding: 6px 12px;
-                font-size: 12px;
-            }
-            button.delete:hover {
-                background: #c82333;
-            }
-            .pins-list {
-                margin-top: 20px;
-            }
-            .pin-item {
-                display: flex;
-                justify-content: space-between;
-                align-items: center;
-                padding: 12px;
-                background: white;
-                border: 1px solid #ddd;
-                border-radius: 4px;
-                margin-bottom: 10px;
-            }
-            .pin-item strong {
-                color: #667eea;
-                min-width: 80px;
-            }
-            .pin-info {
-                flex: 1;
-            }
-            .pin-user {
-                color: #666;
-            }
-            .muted {
-                color: #777;
-                font-size: 13px;
-            }
-            .badge {
-                display: inline-block;
-                padding: 2px 8px;
-                border-radius: 12px;
-                background: #e9ecef;
-                color: #555;
-                font-size: 12px;
-                margin-right: 6px;
-            }
             details summary {
                 cursor: pointer;
                 font-weight: 700;
                 color: #333;
                 margin-bottom: 15px;
-            }
-            .status {
-                padding: 8px 12px;
-                border-radius: 4px;
-                font-size: 12px;
-                margin-top: 10px;
-                display: none;
-            }
-            .status.success {
-                background: #d4edda;
-                color: #155724;
-                display: block;
-            }
-            .status.error {
-                background: #f8d7da;
-                color: #721c24;
-                display: block;
             }
             .loading {
                 opacity: 0.6;
@@ -1278,262 +736,21 @@ async def admin_ui(request: Request):
             <h1>Twilio Voice Assistant</h1>
 
             <div class="form-section">
-                <h2 style="font-size: 18px; margin-bottom: 15px; color: #333;">Assistant Settings</h2>
-                <div class="form-group">
-                    <label for="conversationAgent">Conversation Agent:</label>
-                    <select id="conversationAgent">
-                        <option value="">-- Loading agents --</option>
-                    </select>
-                </div>
-                <button onclick="saveSettings()">Save Settings</button>
-                <div class="status" id="settingsStatus"></div>
-            </div>
-            
-            <div class="form-section">
-                <h2 style="font-size: 18px; margin-bottom: 15px; color: #333;">Caller Access</h2>
-                <p class="muted" style="margin-bottom: 15px;">Preferred and only caller identity source. Add known callers and optional fallback PINs here.</p>
-                <div class="form-group">
-                    <label for="callerUser">Home Assistant User:</label>
-                    <select id="callerUser">
-                        <option value="">-- Loading users --</option>
-                    </select>
-                </div>
-                <div class="form-group">
-                    <label for="callerPhoneNumbers">Phone Numbers (one per line, E.164 preferred):</label>
-                    <textarea id="callerPhoneNumbers" placeholder="+1XXXXXXXXXX&#10;+1YYYYYYYYYY"></textarea>
-                </div>
-                <div class="form-group">
-                    <label for="callerPin">Fallback PIN (optional, 4 digits):</label>
-                    <input type="text" id="callerPin" placeholder="1234" maxlength="4" pattern="[0-9]*">
-                </div>
-                <button onclick="addCallerAccess()">Add Caller Access</button>
-                <div class="status" id="callerAccessStatus"></div>
-                <div class="pins-list">
-                    <h3 style="font-size: 16px; margin: 20px 0 15px; color: #333;">Current Caller Access</h3>
-                    <div id="callerAccessList">
-                        <p style="color: #999; text-align: center; padding: 20px;">Loading...</p>
-                    </div>
-                </div>
+                <p style="color: #555; font-size: 14px; line-height: 1.5;">
+                    Caller identity is resolved automatically via Home Assistant
+                    Extended User Management (phone number &rarr; registered person).
+                    An unrecognized caller is connected directly to Elspeth, who asks
+                    who is speaking and verifies a household PIN as needed &mdash; the
+                    same identity ladder used on every other voice channel in the
+                    house. Nothing here needs configuring.
+                </p>
             </div>
 
         </div>
-
-        <script>
-            const ADMIN_API_BASE = __ADMIN_API_BASE__;
-            let appSettings = {};
-            let haUsers = [];
-
-            async function loadSettings() {
-                try {
-                    const res = await fetch(`${ADMIN_API_BASE}/settings`);
-                    appSettings = await res.json();
-                    await loadConversationAgents();
-                } catch (err) {
-                    console.error('Error loading settings:', err);
-                    const status = document.getElementById('settingsStatus');
-                    status.className = 'status error';
-                    status.textContent = 'Error loading settings: ' + err.message;
-                }
-            }
-
-            async function loadConversationAgents() {
-                const res = await fetch(`${ADMIN_API_BASE}/conversation-agents`);
-                const data = await res.json();
-                const select = document.getElementById('conversationAgent');
-                select.innerHTML = '<option value="">Home Assistant default</option>';
-
-                if (data.agents && data.agents.length > 0) {
-                    data.agents.forEach(agent => {
-                        const opt = document.createElement('option');
-                        opt.value = agent.id;
-                        opt.textContent = agent.name;
-                        select.appendChild(opt);
-                    });
-                }
-
-                select.value = appSettings.conversation_agent_id || '';
-            }
-
-            async function saveSettings() {
-                const status = document.getElementById('settingsStatus');
-                const settings = {
-                    conversation_agent_id: document.getElementById('conversationAgent').value
-                };
-
-                try {
-                    const res = await fetch(`${ADMIN_API_BASE}/settings`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(settings)
-                    });
-
-                    if (res.ok) {
-                        appSettings = settings;
-                        status.className = 'status success';
-                        status.textContent = 'Settings saved successfully';
-                        setTimeout(() => { status.style.display = 'none'; }, 3000);
-                    } else {
-                        const error = await res.text();
-                        status.className = 'status error';
-                        status.textContent = 'Error: ' + error;
-                    }
-                } catch (err) {
-                    status.className = 'status error';
-                    status.textContent = 'Error: ' + err.message;
-                }
-            }
-
-            async function loadUsers() {
-                try {
-                    const res = await fetch(`${ADMIN_API_BASE}/users`);
-                    const data = await res.json();
-                    haUsers = data.users || [];
-                    const select = document.getElementById('callerUser');
-                    select.innerHTML = '<option value="">-- Select user --</option>';
-                    if (data.users && data.users.length > 0) {
-                        data.users.forEach(user => {
-                            const opt = document.createElement('option');
-                            opt.value = user.id;
-                            opt.textContent = user.name;
-                            select.appendChild(opt);
-                        });
-                    } else {
-                        select.innerHTML = '<option value="">No users found</option>';
-                    }
-                } catch (err) {
-                    console.error('Error loading users:', err);
-                    document.getElementById('callerUser').innerHTML = '<option value="">Error loading users</option>';
-                }
-            }
-
-            async function loadCallerAccess() {
-                try {
-                    const res = await fetch(`${ADMIN_API_BASE}/caller-access`);
-                    const data = await res.json();
-                    const list = document.getElementById('callerAccessList');
-                    list.innerHTML = '';
-
-                    if (!data.callers || data.callers.length === 0) {
-                        list.innerHTML = '<p style="color: #999; text-align: center; padding: 20px;">No caller access records configured yet</p>';
-                        return;
-                    }
-
-                    data.callers.forEach(record => {
-                        const item = document.createElement('div');
-                        item.className = 'pin-item';
-                        const info = document.createElement('div');
-                        info.className = 'pin-info';
-                        const title = document.createElement('strong');
-                        title.textContent = record.display_name || record.ha_user_id;
-                        info.appendChild(title);
-                        const numbers = document.createElement('div');
-                        numbers.className = 'pin-user';
-                        numbers.textContent = (record.masked_phone_numbers || []).join(', ') || 'No phone numbers';
-                        info.appendChild(numbers);
-                        const meta = document.createElement('div');
-                        meta.className = 'muted';
-                        const pinBadge = document.createElement('span');
-                        pinBadge.className = 'badge';
-                        pinBadge.textContent = record.pin_set ? 'PIN set' : 'No PIN';
-                        meta.appendChild(pinBadge);
-                        const sourceBadge = document.createElement('span');
-                        sourceBadge.className = 'badge';
-                        sourceBadge.textContent = 'Caller Access';
-                        meta.appendChild(sourceBadge);
-                        info.appendChild(meta);
-                        item.appendChild(info);
-
-                        if (record.deletable) {
-                            const button = document.createElement('button');
-                            button.className = 'delete';
-                            button.textContent = 'Delete';
-                            button.addEventListener('click', () => deleteCallerAccess(record.index));
-                            item.appendChild(button);
-                        }
-
-                        list.appendChild(item);
-                    });
-                } catch (err) {
-                    console.error('Error loading caller access:', err);
-                    document.getElementById('callerAccessList').innerHTML = '<p style="color: #999; text-align: center;">Error loading caller access</p>';
-                }
-            }
-
-            async function addCallerAccess() {
-                const userId = document.getElementById('callerUser').value;
-                const phoneNumbers = document.getElementById('callerPhoneNumbers').value
-                    .split('\\n')
-                    .map(item => item.trim())
-                    .filter(Boolean);
-                const pin = document.getElementById('callerPin').value.trim();
-                const status = document.getElementById('callerAccessStatus');
-                status.style.display = '';
-
-                if (!userId || phoneNumbers.length === 0) {
-                    status.className = 'status error';
-                    status.textContent = 'Select a user and enter at least one phone number';
-                    return;
-                }
-
-                if (pin && !/^[0-9]{4}$/.test(pin)) {
-                    status.className = 'status error';
-                    status.textContent = 'Fallback PIN must be exactly 4 digits';
-                    return;
-                }
-
-                try {
-                    const res = await fetch(`${ADMIN_API_BASE}/caller-access`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            ha_user_id: userId,
-                            phone_numbers: phoneNumbers,
-                            pin: pin || null
-                        })
-                    });
-
-                    if (res.ok) {
-                        status.className = 'status success';
-                        status.textContent = 'Caller access saved';
-                        document.getElementById('callerUser').value = '';
-                        document.getElementById('callerPhoneNumbers').value = '';
-                        document.getElementById('callerPin').value = '';
-                        setTimeout(() => { status.style.display = 'none'; }, 3000);
-                        loadCallerAccess();
-                    } else {
-                        const error = await res.text();
-                        status.className = 'status error';
-                        status.textContent = 'Error: ' + error;
-                    }
-                } catch (err) {
-                    status.className = 'status error';
-                    status.textContent = 'Error: ' + err.message;
-                }
-            }
-
-            async function deleteCallerAccess(recordIndex) {
-                if (!confirm('Delete this caller access record?')) return;
-                try {
-                    const res = await fetch(`${ADMIN_API_BASE}/caller-access/${recordIndex}`, { method: 'DELETE' });
-                    if (res.ok) {
-                        loadCallerAccess();
-                    } else {
-                        alert('Could not delete caller access record');
-                    }
-                } catch (err) {
-                    alert('Error deleting caller access: ' + err.message);
-                }
-            }
-
-            loadSettings();
-            loadUsers();
-            loadCallerAccess();
-            setInterval(loadCallerAccess, 5000);
-        </script>
     </body>
     </html>
     """
-    return html.replace("__ADMIN_API_BASE__", json.dumps(admin_api_base))
+    return html
 
 
 @app.get("//admin", response_class=HTMLResponse)
@@ -1550,86 +767,6 @@ async def get_users(request: Request):
     if error:
         response["error"] = error
     return response
-
-
-@app.get("/admin/api/settings")
-async def get_settings(request: Request):
-    """Get assistant settings"""
-    require_ingress(request)
-    return load_settings()
-
-
-@app.post("/admin/api/settings")
-async def update_settings(settings_request: SettingsRequest, request: Request):
-    """Save assistant settings"""
-    require_ingress(request)
-    settings = {
-        "conversation_agent_id": settings_request.conversation_agent_id or "",
-    }
-
-    if save_settings(settings):
-        return {"success": True, "settings": settings}
-    return JSONResponse({"error": "Could not save settings"}, status_code=500)
-
-
-@app.get("/admin/api/conversation-agents")
-async def get_conversation_agents(request: Request):
-    """Get available Home Assistant conversation agents"""
-    require_ingress(request)
-    agents, error = await fetch_conversation_agents()
-    response = {"agents": agents}
-    if error:
-        response["error"] = error
-    return response
-
-
-@app.get("/admin/api/caller-access")
-async def get_caller_access(request: Request):
-    """Get caller access records without exposing full phone numbers or PINs."""
-    require_ingress(request)
-    users, error = await fetch_ha_users()
-    user_map = {user["id"]: user["name"] for user in users}
-    if error:
-        print(f"Could not fetch user names for caller access list: {error}")
-
-    admin_records = [
-        caller_record_display(record, index, "admin", user_map)
-        for index, record in enumerate(load_admin_caller_identity_records())
-        if isinstance(record, dict)
-    ]
-    return {"callers": admin_records}
-
-
-@app.post("/admin/api/caller-access")
-async def add_caller_access(
-    caller_request: CallerAccessRequest,
-    request: Request,
-):
-    """Add an admin-managed unified caller access record."""
-    require_ingress(request)
-    record, error = normalize_caller_access_request(caller_request)
-    if error:
-        return JSONResponse({"error": error}, status_code=400)
-
-    callers = load_admin_caller_identity_records()
-    callers.append(record)
-    if save_admin_caller_identity_records(callers):
-        return {"success": True}
-    return JSONResponse({"error": "Could not save caller access"}, status_code=500)
-
-
-@app.delete("/admin/api/caller-access/{record_index}")
-async def delete_caller_access(record_index: int, request: Request):
-    """Delete an admin-managed caller access record."""
-    require_ingress(request)
-    callers = load_admin_caller_identity_records()
-    if record_index < 0 or record_index >= len(callers):
-        return JSONResponse({"error": "Caller access record not found"}, status_code=404)
-
-    callers.pop(record_index)
-    if save_admin_caller_identity_records(callers):
-        return {"success": True}
-    return JSONResponse({"error": "Could not save caller access"}, status_code=500)
 
 
 # Twilio webhook endpoints
@@ -1677,41 +814,6 @@ async def incoming_call(
         caller=masked_from,
     )
     return redirect_to_start_session(UNKNOWN_CALLER_HA_USER_ID, "unknown", CallSid)
-
-
-@app.post("/check_pin")
-async def check_pin(
-    request: Request,
-    CallSid: str | None = Form(None),
-    Digits: str | None = Form(None),
-):
-    try:
-        await validate_twilio_http_request(
-            request,
-            route="/check_pin",
-            call_sid=CallSid,
-        )
-        if Digits:
-            return await handle_pin_digits(Digits, call_sid=CallSid)
-
-        return twiml_response("""
-        <Response>
-            <Say>Sorry, I did not receive your PIN. Please try again.</Say>
-            <Redirect>/incoming_call</Redirect>
-        </Response>
-        """)
-
-    except HTTPException:
-        raise
-    except Exception:
-        print("Exception in check_pin:")
-        traceback.print_exc()
-        return twiml_response("""
-        <Response>
-            <Say>Sorry, there was a problem checking your PIN. Please try again.</Say>
-            <Redirect>/incoming_call</Redirect>
-        </Response>
-        """)
 
 
 @app.api_route("/start_session", methods=["GET", "POST"])

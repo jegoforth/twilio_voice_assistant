@@ -33,12 +33,6 @@ public_base_url = str(config.get('public_base_url', '')).strip().rstrip('/')
 if public_base_url and not public_base_url.startswith(('http://', 'https://')):
     public_base_url = f'https://{public_base_url}'
 os.environ['PUBLIC_BASE_URL'] = public_base_url
-os.environ['AUTH_MODE'] = str(
-    config.get('auth_mode', 'pin')
-).strip().lower()
-os.environ['UNKNOWN_CALLER_POLICY'] = str(
-    config.get('unknown_caller_policy', 'reject')
-).strip().lower()
 os.environ['CONVERSATION_RELAY_TTS_PROVIDER'] = str(
     config.get('conversation_relay_tts_provider', 'ElevenLabs')
 ).strip()

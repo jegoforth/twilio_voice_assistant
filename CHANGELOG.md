@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.8.1
+
+- Added `/legal/consent`, documenting the actual verbal consent script
+  used to enroll a household member for SMS -- the campaign's first
+  A2P 10DLC submission was rejected (error 30909) because TCR couldn't
+  verify the described opt-in process from text alone; this page gives
+  reviewers something concrete and publicly checkable.
+
 ## 1.8.0
 
 - Added `/legal/privacy` and `/legal/terms`, serving a privacy policy and

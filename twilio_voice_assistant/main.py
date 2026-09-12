@@ -744,6 +744,41 @@ _TERMS_HTML = f"""<!doctype html>
 """
 
 
+_CONSENT_HTML = f"""<!doctype html>
+<html><head><meta charset="utf-8"><title>Elspeth Consent Evidence</title>{_LEGAL_STYLE}</head>
+<body>
+<h1>Verbal Consent Evidence — Elspeth SMS Messaging</h1>
+<p class="updated">Effective September 12, 2026</p>
+<p>Elspeth's SMS feature has no public sign-up form. Consent is collected verbally, in person, between members of the same household. This page documents exactly how that consent is obtained, for verification purposes.</p>
+<h2>Who is enrolled</h2>
+<p>Only two people: Eric Goforth (the account holder) and Shelley Goforth, members of the same household. No one outside this household is ever enrolled.</p>
+<h2>The verbal consent script</h2>
+<p>Before enrolling a household member's phone number, the account holder speaks the following disclosure to them directly, in person:</p>
+<blockquote>
+"I'd like to set up Elspeth, our household assistant, to be able to text you things like my ETA or a status update. You'll get occasional texts, only when something like that comes up -- not a regular schedule. Message and data rates may apply. You can reply STOP at any time to stop receiving these, or HELP if you need assistance. Is that okay with you?"
+</blockquote>
+<p>Enrollment only proceeds after the household member responds "yes" or otherwise gives clear verbal agreement. That response is the enrollment event; there is no separate confirmation step, since it happens in the same conversation.</p>
+<h2>What the household member is told</h2>
+<ul>
+  <li>The brand/service name: Elspeth.</li>
+  <li>What will be sent: occasional status updates or ETA information.</li>
+  <li>Message frequency: occasional, not scheduled or recurring.</li>
+  <li>That message and data rates may apply.</li>
+  <li>How to opt out (reply STOP) and get help (reply HELP).</li>
+</ul>
+<h2>Related pages</h2>
+<p>See the <a href="/legal/privacy">Privacy Policy</a> and <a href="/legal/terms">Terms &amp; Conditions</a> for how phone numbers are handled and the full terms of this feature.</p>
+<h2>Contact</h2>
+<p class="contact">Questions about this consent process can be directed to the account holder directly.</p>
+</body></html>
+"""
+
+
+@app.get("/legal/consent")
+async def legal_consent():
+    return HTMLResponse(_CONSENT_HTML)
+
+
 @app.get("/legal/privacy")
 async def legal_privacy():
     return HTMLResponse(_PRIVACY_HTML)

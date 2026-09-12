@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.8.0
+
+- Added `/legal/privacy` and `/legal/terms`, serving a privacy policy and
+  terms-and-conditions page for this add-on's SMS-messaging use. Twilio's
+  A2P 10DLC campaign registration requires live URLs for both; this
+  add-on already has a public domain (`PUBLIC_BASE_URL`) for its own
+  webhooks, so these are served from there rather than standing up
+  separate hosting.
+
 ## 1.5.1
 
 - Fix: an unrecognized caller's opening greeting said "Hello unknown. What

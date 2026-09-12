@@ -1,6 +1,6 @@
 from fastapi import FastAPI, Form, Request, WebSocket, WebSocketDisconnect
 from fastapi import HTTPException
-from fastapi.responses import Response
+from fastapi.responses import HTMLResponse, Response
 import httpx
 import websockets
 import asyncio
@@ -674,6 +674,84 @@ async def send_to_elspeth_twilio_conversation(text: str, user_id: str, conversat
 @app.get("/")
 async def root():
     return {"status": "ok"}
+
+
+# A2P 10DLC campaign registration requires live privacy-policy and
+# terms-and-conditions URLs. This add-on's public domain (PUBLIC_BASE_URL)
+# already exists for Twilio's own webhooks, so these two static pages are
+# served from here rather than standing up separate hosting.
+_LEGAL_STYLE = """
+<style>
+  body{font-family:Georgia,'Times New Roman',serif;line-height:1.6;max-width:680px;
+       margin:0 auto;padding:2.5rem 1.5rem 4rem;color:#2a2622;background:#faf9f7;}
+  h1{font-size:1.6rem;margin-bottom:.25rem;}
+  .updated{color:#6b6459;font-size:.9rem;margin-bottom:2rem;}
+  h2{font-size:1.1rem;margin-top:2rem;border-bottom:1px solid #e5e0d8;padding-bottom:.3rem;}
+  li{margin-bottom:.5rem;}
+  .contact{margin-top:2.5rem;padding-top:1rem;border-top:1px solid #e5e0d8;color:#6b6459;font-size:.95rem;}
+</style>
+"""
+
+_PRIVACY_HTML = f"""<!doctype html>
+<html><head><meta charset="utf-8"><title>Elspeth Privacy Policy</title>{_LEGAL_STYLE}</head>
+<body>
+<h1>Privacy Policy — Elspeth Household Assistant</h1>
+<p class="updated">Effective September 12, 2026</p>
+<p>Elspeth is a personal, non-commercial household assistant project. This policy covers the SMS messaging feature of that project.</p>
+<h2>What we collect and why</h2>
+<p>We hold the mobile phone number of each household member who has verbally agreed to receive messages from Elspeth, solely for the purpose of sending those messages (for example, status updates or estimated arrival times).</p>
+<h2>How your number is used</h2>
+<ul>
+  <li>Your phone number is used only to send you messages you've agreed to receive from this household assistant.</li>
+  <li>We do not sell, rent, trade, or share your mobile phone number or opt-in status with any third party or affiliate for marketing or any other purpose.</li>
+  <li>Your number is not used for any purpose outside this household messaging feature.</li>
+</ul>
+<h2>Message frequency</h2>
+<p>Message frequency varies and is occasional, sent only as needed (for example, when a status update is requested). This is not a recurring or scheduled marketing program.</p>
+<h2>Message and data rates</h2>
+<p>Message and data rates may apply, depending on your mobile carrier and plan.</p>
+<h2>Opting out</h2>
+<p>Reply <strong>STOP</strong> to any message at any time to opt out of receiving further messages. Reply <strong>HELP</strong> for assistance.</p>
+<h2>Contact</h2>
+<p class="contact">Questions about this policy can be directed to the account holder directly.</p>
+</body></html>
+"""
+
+_TERMS_HTML = f"""<!doctype html>
+<html><head><meta charset="utf-8"><title>Elspeth Terms &amp; Conditions</title>{_LEGAL_STYLE}</head>
+<body>
+<h1>Terms &amp; Conditions — Elspeth SMS Messaging</h1>
+<p class="updated">Effective September 12, 2026</p>
+<p>Elspeth is a personal, non-commercial household assistant. This page describes the terms of its SMS messaging feature.</p>
+<h2>The service</h2>
+<p>Elspeth may send short SMS messages to household members who have verbally agreed to receive them — for example, status updates or estimated arrival times, sent by request or as part of ordinary household use.</p>
+<h2>Enrollment</h2>
+<p>Only phone numbers belonging to household members who have given explicit verbal consent are enrolled to receive messages. There is no public sign-up; enrollment is managed directly by the account holder.</p>
+<h2>Message frequency</h2>
+<p>Message frequency varies and is occasional, sent only as needed. This is not a recurring or scheduled marketing program.</p>
+<h2>Message and data rates</h2>
+<p>Message and data rates may apply, depending on your mobile carrier and plan.</p>
+<h2>Opting out and help</h2>
+<ul>
+  <li>Reply <strong>STOP</strong> to any message at any time to opt out of receiving further messages.</li>
+  <li>Reply <strong>HELP</strong> for assistance.</li>
+</ul>
+<h2>Privacy</h2>
+<p>See the <a href="/legal/privacy">Privacy Policy</a> for how your phone number is handled.</p>
+<h2>Contact</h2>
+<p class="contact">Questions about these terms can be directed to the account holder directly.</p>
+</body></html>
+"""
+
+
+@app.get("/legal/privacy")
+async def legal_privacy():
+    return HTMLResponse(_PRIVACY_HTML)
+
+
+@app.get("/legal/terms")
+async def legal_terms():
+    return HTMLResponse(_TERMS_HTML)
 
 
 # Twilio webhook endpoints

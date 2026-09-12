@@ -325,6 +325,60 @@ async def find_person_by_phone(from_number: str | None):
     return ha_user_id, display_name, normalized_from
 
 
+# The exact keyword sets already configured on the A2P 10DLC campaign
+# (opt_in_keywords / opt_out_keywords) -- kept in sync with the console
+# registration by hand, since there is no API this add-on queries for it.
+# Twilio's own Advanced Opt-Out (Messaging Service level) independently
+# blocks future sends to a STOP'd number at the carrier layer regardless
+# of what this webhook does; this is Elspeth's own record of consent,
+# which is what lets it decide not to attempt a send in the first place,
+# and is the actual verifiable "Via Text" opt-in flow TCR's campaign
+# vetting checks for -- verbal consent alone did not pass (error 30909).
+SMS_OPT_IN_KEYWORDS = {"START", "YES", "UNSTOP"}
+SMS_OPT_OUT_KEYWORDS = {"CANCEL", "QUIT", "STOP", "OPTOUT", "UNSUBSCRIBE", "STOPALL", "REVOKE", "END"}
+
+
+def normalize_sms_keyword(body: str | None) -> str:
+    return (body or "").strip().upper()
+
+
+async def find_person_entity_by_phone(from_number: str | None):
+    """Look up the registered HA person entity for a phone number via HA
+    Extended User Management's find_person_by_phone service.
+
+    Unlike find_person_by_phone() above (which resolves onward to an
+    ha_user_id for the voice conversation identity handoff), this returns
+    the person_entity_id itself -- what the SMS opt-in webhook needs to
+    write sms_opted_in on the right person's own record.
+    """
+    normalized_from = normalize_phone_number(from_number)
+    if not normalized_from:
+        return None, normalized_from
+    result, error = await ha_websocket_request({
+        "type": "call_service",
+        "domain": "extended_user_management",
+        "service": "find_person_by_phone",
+        "service_data": {"phone_number": normalized_from},
+        "return_response": True,
+    })
+    if error:
+        print(f"WARNING: find_person_by_phone lookup failed: {error}")
+        return None, normalized_from
+    response = (result or {}).get("response") or {}
+    return response.get("person_entity_id"), normalized_from
+
+
+async def set_sms_opted_in(person_entity_id: str, opted_in: bool) -> None:
+    _, error = await ha_websocket_request({
+        "type": "call_service",
+        "domain": "extended_user_management",
+        "service": "set_profile_value",
+        "service_data": {"person_entity_id": person_entity_id, "key": "sms_opted_in", "value": opted_in},
+    })
+    if error:
+        print(f"WARNING: could not set sms_opted_in for {person_entity_id}: {error}")
+
+
 def log_startup_configuration():
     log_timing(
         "startup_configuration",
@@ -834,6 +888,46 @@ async def incoming_call(
         caller=masked_from,
     )
     return redirect_to_start_session(UNKNOWN_CALLER_HA_USER_ID, "unknown", CallSid)
+
+
+@app.post("/incoming_sms")
+async def incoming_sms(
+    request: Request,
+    From: str = Form(None),
+    Body: str = Form(None),
+    MessageSid: str = Form(None),
+):
+    """Twilio's inbound-SMS webhook -- the only place sms_opted_in is ever
+    written. Elspeth's own voice/text-request side (elspeth-core) can only
+    ever read this field, never set it: consent has to come from the
+    person's own phone actually replying, not from anyone else saying so
+    on their behalf.
+
+    Twilio's Advanced Opt-Out (configured at the Messaging Service level)
+    sends the actual START/STOP/HELP confirmation replies and enforces
+    carrier-level suppression automatically -- this webhook only updates
+    Elspeth's own household record, and returns empty TwiML (no
+    additional reply of its own).
+    """
+    await validate_twilio_http_request(request, route="/incoming_sms", call_sid=MessageSid)
+    person_entity_id, normalized_from = await find_person_entity_by_phone(From)
+    masked_from = mask_phone_number(normalized_from or From)
+    keyword = normalize_sms_keyword(Body)
+
+    if person_entity_id is None:
+        log_timing("inbound_sms_unrecognized_sender", message_sid=MessageSid, sender=masked_from)
+        return twiml_response("<Response></Response>")
+
+    if keyword in SMS_OPT_IN_KEYWORDS:
+        await set_sms_opted_in(person_entity_id, True)
+        log_timing("sms_opt_in_recorded", message_sid=MessageSid, sender=masked_from)
+    elif keyword in SMS_OPT_OUT_KEYWORDS:
+        await set_sms_opted_in(person_entity_id, False)
+        log_timing("sms_opt_out_recorded", message_sid=MessageSid, sender=masked_from)
+    else:
+        log_timing("inbound_sms_non_keyword", message_sid=MessageSid, sender=masked_from)
+
+    return twiml_response("<Response></Response>")
 
 
 @app.api_route("/start_session", methods=["GET", "POST"])

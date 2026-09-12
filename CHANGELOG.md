@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.9.0
+
+- Added `/incoming_sms`, the first real inbound-SMS webhook: a household
+  member texting YES/START/STOP to the Twilio number now updates their
+  own `sms_opted_in` profile value in HA Extended User Management. This
+  is the genuine, Twilio-verifiable "Via Text" opt-in flow the A2P 10DLC
+  campaign needs -- verbal consent alone did not pass CTA verification
+  (error 30909). Twilio's own Advanced Opt-Out still independently
+  enforces STOP at the carrier level; this webhook only updates
+  Elspeth's own record, which is what lets Elspeth (elspeth-core)
+  decide not to attempt a send in the first place. Elspeth's own
+  request side can only ever read this field, never write it -- consent
+  has to come from the person's own phone, not from anyone else saying
+  so on their behalf.
+
 ## 1.8.1
 
 - Added `/legal/consent`, documenting the actual verbal consent script

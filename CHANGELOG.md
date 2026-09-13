@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.9.4
+
+- Made "Goforth Home" the consistent, primary name across all three legal
+  pages (titles, headings, and body copy), with "Elspeth" mentioned only
+  as the name of the software Goforth Home operates. Confirmed via the
+  Twilio API that the actual registered A2P brand (TrustProduct
+  friendly_name) is "Goforth Home" -- every legal page previously led
+  with "Elspeth" instead, meaning a reviewer cross-checking the
+  registered brand against the campaign's own materials would find no
+  match. This was flagged directly by the account holder as a likely
+  contributor to repeated CTA-verification rejections.
+
 ## 1.9.3
 
 - Reframed `/legal/consent`, `/legal/privacy`, and `/legal/terms` from

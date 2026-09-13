@@ -747,16 +747,16 @@ _LEGAL_STYLE = """
 """
 
 _PRIVACY_HTML = f"""<!doctype html>
-<html><head><meta charset="utf-8"><title>Elspeth Privacy Policy</title>{_LEGAL_STYLE}</head>
+<html><head><meta charset="utf-8"><title>Goforth Home Privacy Policy</title>{_LEGAL_STYLE}</head>
 <body>
-<h1>Privacy Policy — Elspeth Automation Software</h1>
+<h1>Privacy Policy — Goforth Home</h1>
 <p class="updated">Effective September 13, 2026</p>
-<p>Elspeth is automation software operated by a private, non-commercial organization. This policy covers the SMS messaging feature of that software.</p>
+<p>Goforth Home is a private, non-commercial organization that operates automation software called Elspeth. This policy covers Elspeth's SMS messaging feature.</p>
 <h2>What we collect and why</h2>
 <p>We hold the mobile phone number of each registered member who has opted in by texting this number directly, solely for the purpose of sending those messages (for example, status updates or estimated arrival times).</p>
 <h2>How your number is used</h2>
 <ul>
-  <li>Your phone number is used only to send you messages you've agreed to receive from this organization's software.</li>
+  <li>Your phone number is used only to send you messages you've agreed to receive from Goforth Home's software.</li>
   <li>We do not sell, rent, trade, or share your mobile phone number or opt-in status with any third party or affiliate for marketing or any other purpose.</li>
   <li>Your number is not used for any purpose outside this messaging feature.</li>
 </ul>
@@ -772,13 +772,13 @@ _PRIVACY_HTML = f"""<!doctype html>
 """
 
 _TERMS_HTML = f"""<!doctype html>
-<html><head><meta charset="utf-8"><title>Elspeth Terms &amp; Conditions</title>{_LEGAL_STYLE}</head>
+<html><head><meta charset="utf-8"><title>Goforth Home Terms &amp; Conditions</title>{_LEGAL_STYLE}</head>
 <body>
-<h1>Terms &amp; Conditions — Elspeth SMS Messaging</h1>
+<h1>Terms &amp; Conditions — Goforth Home</h1>
 <p class="updated">Effective September 13, 2026</p>
-<p>Elspeth is automation software operated by a private, non-commercial organization. This page describes the terms of its SMS messaging feature.</p>
+<p>Goforth Home is a private, non-commercial organization that operates automation software called Elspeth. This page describes the terms of Elspeth's SMS messaging feature.</p>
 <h2>The service</h2>
-<p>Elspeth may send short SMS messages to registered members who have opted in by texting this number directly — for example, status updates or estimated arrival times, sent by request or as part of ordinary use.</p>
+<p>Elspeth, on behalf of Goforth Home, may send short SMS messages to registered members who have opted in by texting this number directly — for example, status updates or estimated arrival times, sent by request or as part of ordinary use.</p>
 <h2>Enrollment</h2>
 <p>Only phone numbers that have sent this number a recognized opt-in keyword (START, YES, or UNSTOP) are enrolled to receive messages. There is no public sign-up, and no member is ever enrolled without sending that message themselves.</p>
 <h2>Message frequency</h2>
@@ -799,15 +799,15 @@ _TERMS_HTML = f"""<!doctype html>
 
 
 _CONSENT_HTML = f"""<!doctype html>
-<html><head><meta charset="utf-8"><title>Elspeth Consent Evidence</title>{_LEGAL_STYLE}</head>
+<html><head><meta charset="utf-8"><title>Goforth Home Consent Evidence</title>{_LEGAL_STYLE}</head>
 <body>
-<h1>Opt-In Consent Evidence — Elspeth SMS Messaging</h1>
+<h1>Opt-In Consent Evidence — Goforth Home</h1>
 <p class="updated">Effective September 13, 2026</p>
 <div style="background:#fff8ec;border:2px solid #d9a441;border-radius:8px;padding:1.25rem 1.5rem;margin:1.5rem 0;">
-  <p style="margin:0 0 .5rem;font-size:1.15rem;font-weight:600;">Text <strong>YES</strong> to <strong>+1&nbsp;(901)&nbsp;308-7408</strong> or <strong>+1&nbsp;(833)&nbsp;709-7901</strong> to opt in to occasional Elspeth messages (status updates, ETA notifications).</p>
+  <p style="margin:0 0 .5rem;font-size:1.15rem;font-weight:600;">Text <strong>YES</strong> to <strong>+1&nbsp;(901)&nbsp;308-7408</strong> or <strong>+1&nbsp;(833)&nbsp;709-7901</strong> to opt in to occasional Goforth Home messages (status updates, ETA notifications) sent via Elspeth.</p>
   <p style="margin:0;color:#6b6459;">Msg &amp; data rates may apply. Message frequency varies. Reply <strong>HELP</strong> for help, <strong>STOP</strong> to cancel at any time.</p>
 </div>
-<p>Elspeth's SMS feature has no public sign-up form. Consent is a real, carrier-witnessed text message: a registered member sends one of these numbers a recognized opt-in keyword from their own phone, before Elspeth's software will ever send that number a message. This page documents exactly how that consent is obtained, for verification purposes.</p>
+<p>Goforth Home's SMS feature has no public sign-up form. Consent is a real, carrier-witnessed text message: a registered member sends one of these numbers a recognized opt-in keyword from their own phone, before Elspeth (Goforth Home's automation software) will ever send that number a message. This page documents exactly how that consent is obtained, for verification purposes.</p>
 <h2>Who can enroll</h2>
 <p>Only phone numbers belonging to registered members of the operating organization. No one outside the organization is ever enrolled, and no phone number is ever added to the system except by that person's own phone sending the opt-in text below.</p>
 <h2>How opt-in works</h2>

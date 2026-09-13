@@ -1,6 +1,6 @@
 {
   "name": "Twilio Voice Assistant",
-  "version": "1.9.1",
+  "version": "1.9.2",
   "slug": "twilio_voice_assistant",
   "description": "Twilio Conversation Relay app with caller identity via HA Extended User Management, spoken self-declaration and PIN verification for unrecognized callers (the same identity ladder as every other Elspeth voice channel), ElevenLabs voice support, and an optional conversation_agent_id for routing calls to a different HA conversation agent if elspeth_local isn't installed. Leave conversation_agent_id blank to use Elspeth with full per-caller identity -- selecting an agent here routes through HA's generic, identity-less conversation API instead, so only set it if you specifically want a different agent.",
   "arch": ["amd64", "aarch64"],

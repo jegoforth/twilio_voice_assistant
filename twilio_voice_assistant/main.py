@@ -803,6 +803,10 @@ _CONSENT_HTML = f"""<!doctype html>
 <body>
 <h1>Opt-In Consent Evidence — Elspeth SMS Messaging</h1>
 <p class="updated">Effective September 12, 2026</p>
+<div style="background:#fff8ec;border:2px solid #d9a441;border-radius:8px;padding:1.25rem 1.5rem;margin:1.5rem 0;">
+  <p style="margin:0 0 .5rem;font-size:1.15rem;font-weight:600;">Text <strong>YES</strong> to <strong>+1&nbsp;(901)&nbsp;308-7408</strong> to opt in to occasional Elspeth household messages (status updates, ETA notifications).</p>
+  <p style="margin:0;color:#6b6459;">Msg &amp; data rates may apply. Message frequency varies. Reply <strong>HELP</strong> for help, <strong>STOP</strong> to cancel at any time.</p>
+</div>
 <p>Elspeth's SMS feature has no public sign-up form. Consent is a real, carrier-witnessed text message: a household member sends this number a recognized opt-in keyword from their own phone, before Elspeth's software will ever send that number a message. This page documents exactly how that consent is obtained, for verification purposes.</p>
 <h2>Who can enroll</h2>
 <p>Only phone numbers belonging to members of the account holder's own household. No one outside the household is ever enrolled, and no phone number is ever added to the system except by that person's own phone sending the opt-in text below.</p>

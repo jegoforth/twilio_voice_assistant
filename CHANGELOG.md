@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.9.2
+
+- Added a visible "Text YES to +1 (901) 308-7408..." call-to-action banner
+  to the top of `/legal/consent`. Twilio's revise-and-resubmit form
+  explicitly asks for a publicly reachable page showing where the opt-in
+  CTA is displayed, not just a prose description of the opt-in mechanism
+  -- the 1.9.1 rewrite covered the latter but not this.
+
 ## 1.9.1
 
 - Rewrote `/legal/consent`, `/legal/privacy`, and `/legal/terms` to describe

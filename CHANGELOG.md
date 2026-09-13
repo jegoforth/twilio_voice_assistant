@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.9.1
+
+- Rewrote `/legal/consent`, `/legal/privacy`, and `/legal/terms` to describe
+  the real text-based opt-in flow (a household member texts START/YES/
+  UNSTOP to this number themselves) instead of the verbal-consent script
+  they previously documented, which Twilio's CTA verification already
+  rejected (error 30909, see 1.9.0). Leaving the old verbal-script wording
+  in place would have kept the legal pages contradicting the campaign's
+  actual, revised `message_flow`.
+
 ## 1.9.0
 
 - Added `/incoming_sms`, the first real inbound-SMS webhook: a household

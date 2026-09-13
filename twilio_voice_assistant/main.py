@@ -753,7 +753,7 @@ _PRIVACY_HTML = f"""<!doctype html>
 <p class="updated">Effective September 12, 2026</p>
 <p>Elspeth is a personal, non-commercial household assistant project. This policy covers the SMS messaging feature of that project.</p>
 <h2>What we collect and why</h2>
-<p>We hold the mobile phone number of each household member who has verbally agreed to receive messages from Elspeth, solely for the purpose of sending those messages (for example, status updates or estimated arrival times).</p>
+<p>We hold the mobile phone number of each household member who has opted in by texting this number directly, solely for the purpose of sending those messages (for example, status updates or estimated arrival times).</p>
 <h2>How your number is used</h2>
 <ul>
   <li>Your phone number is used only to send you messages you've agreed to receive from this household assistant.</li>
@@ -778,9 +778,9 @@ _TERMS_HTML = f"""<!doctype html>
 <p class="updated">Effective September 12, 2026</p>
 <p>Elspeth is a personal, non-commercial household assistant. This page describes the terms of its SMS messaging feature.</p>
 <h2>The service</h2>
-<p>Elspeth may send short SMS messages to household members who have verbally agreed to receive them — for example, status updates or estimated arrival times, sent by request or as part of ordinary household use.</p>
+<p>Elspeth may send short SMS messages to household members who have opted in by texting this number directly — for example, status updates or estimated arrival times, sent by request or as part of ordinary household use.</p>
 <h2>Enrollment</h2>
-<p>Only phone numbers belonging to household members who have given explicit verbal consent are enrolled to receive messages. There is no public sign-up; enrollment is managed directly by the account holder.</p>
+<p>Only phone numbers that have sent this number a recognized opt-in keyword (START, YES, or UNSTOP) are enrolled to receive messages. There is no public sign-up, and no household member is ever enrolled without sending that message themselves.</p>
 <h2>Message frequency</h2>
 <p>Message frequency varies and is occasional, sent only as needed. This is not a recurring or scheduled marketing program.</p>
 <h2>Message and data rates</h2>
@@ -801,25 +801,17 @@ _TERMS_HTML = f"""<!doctype html>
 _CONSENT_HTML = f"""<!doctype html>
 <html><head><meta charset="utf-8"><title>Elspeth Consent Evidence</title>{_LEGAL_STYLE}</head>
 <body>
-<h1>Verbal Consent Evidence — Elspeth SMS Messaging</h1>
+<h1>Opt-In Consent Evidence — Elspeth SMS Messaging</h1>
 <p class="updated">Effective September 12, 2026</p>
-<p>Elspeth's SMS feature has no public sign-up form. Consent is collected verbally, in person, between members of the same household. This page documents exactly how that consent is obtained, for verification purposes.</p>
-<h2>Who is enrolled</h2>
-<p>Only two people: Eric Goforth (the account holder) and Shelley Goforth, members of the same household. No one outside this household is ever enrolled.</p>
-<h2>The verbal consent script</h2>
-<p>Before enrolling a household member's phone number, the account holder speaks the following disclosure to them directly, in person:</p>
-<blockquote>
-"I'd like to set up Elspeth, our household assistant, to be able to text you things like my ETA or a status update. You'll get occasional texts, only when something like that comes up -- not a regular schedule. Message and data rates may apply. You can reply STOP at any time to stop receiving these, or HELP if you need assistance. Is that okay with you?"
-</blockquote>
-<p>Enrollment only proceeds after the household member responds "yes" or otherwise gives clear verbal agreement. That response is the enrollment event; there is no separate confirmation step, since it happens in the same conversation.</p>
-<h2>What the household member is told</h2>
-<ul>
-  <li>The brand/service name: Elspeth.</li>
-  <li>What will be sent: occasional status updates or ETA information.</li>
-  <li>Message frequency: occasional, not scheduled or recurring.</li>
-  <li>That message and data rates may apply.</li>
-  <li>How to opt out (reply STOP) and get help (reply HELP).</li>
-</ul>
+<p>Elspeth's SMS feature has no public sign-up form. Consent is a real, carrier-witnessed text message: a household member sends this number a recognized opt-in keyword from their own phone, before Elspeth's software will ever send that number a message. This page documents exactly how that consent is obtained, for verification purposes.</p>
+<h2>Who can enroll</h2>
+<p>Only phone numbers belonging to members of the account holder's own household. No one outside the household is ever enrolled, and no phone number is ever added to the system except by that person's own phone sending the opt-in text below.</p>
+<h2>How opt-in works</h2>
+<p>A household member sends one of the following keywords, as a text message, directly to this number from their own phone:</p>
+<blockquote>START, YES, or UNSTOP</blockquote>
+<p>Twilio's own automatic opt-in confirmation is sent back immediately once that keyword is received. That confirmed, carrier-recorded event is the enrollment -- not a conversation, a form, or anything relayed by a third party. Only after this event has occurred does Elspeth's software consider that phone number eligible to receive a message.</p>
+<h2>How opt-out works</h2>
+<p>A household member can send STOP, CANCEL, QUIT, OPTOUT, UNSUBSCRIBE, STOPALL, REVOKE, or END at any time, from the same phone, to withdraw consent. Twilio's own automatic opt-out confirmation is sent back immediately, and Elspeth's software will not send that number another message unless it opts back in.</p>
 <h2>Related pages</h2>
 <p>See the <a href="/legal/privacy">Privacy Policy</a> and <a href="/legal/terms">Terms &amp; Conditions</a> for how phone numbers are handled and the full terms of this feature.</p>
 <h2>Contact</h2>

@@ -1,5 +1,22 @@
 # Changelog
 
+## 1.10.0
+
+- Reduced per-turn call latency: the Home Assistant websocket connection
+  used to relay each conversational turn to Elspeth Core (`elspeth_local.
+  twilio_conversation`) is now held open and reused for the whole call
+  (`HAConnection`), instead of reconnecting and re-running the full
+  auth_required/auth/auth_ok handshake from scratch on every single
+  utterance. The connection auto-reconnects once if it drops mid-call
+  (e.g. Home Assistant restarts). One-shot lookups (`find_person_by_phone`,
+  the inbound-SMS webhook) are unaffected and still use the original
+  one-shot `ha_websocket_request()`.
+- Added a configurable `conversation_relay_eot_threshold` option (0.5-0.9,
+  default 0.8 -- Twilio's own default, so this changes nothing unless
+  explicitly tuned). Controls how confident Twilio needs to be that the
+  caller has stopped talking before finalizing their turn; lower values
+  trade a small risk of cutting someone off for a faster reply.
+
 ## 1.9.4
 
 - Made "Goforth Home" the consistent, primary name across all three legal

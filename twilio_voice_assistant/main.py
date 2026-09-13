@@ -34,6 +34,23 @@ CONVERSATION_RELAY_TRANSCRIPTION_PROVIDER = os.getenv(
 CONVERSATION_RELAY_LANGUAGE = os.getenv(
     "CONVERSATION_RELAY_LANGUAGE", "en-US"
 ).strip()
+# End-of-turn confidence threshold (0.5-0.9). Lower = Twilio finalizes the
+# caller's turn sooner after they stop talking (faster replies, more risk of
+# cutting someone off mid-sentence); higher = waits longer to be sure they're
+# done. 0.8 is Twilio's own default, so leaving this unset changes nothing --
+# it exists to let this be tuned empirically against real calls rather than
+# guessed at.
+_EOT_THRESHOLD_RAW = os.getenv("CONVERSATION_RELAY_EOT_THRESHOLD", "0.8").strip()
+try:
+    CONVERSATION_RELAY_EOT_THRESHOLD = float(_EOT_THRESHOLD_RAW)
+    if not (0.5 <= CONVERSATION_RELAY_EOT_THRESHOLD <= 0.9):
+        raise ValueError
+except ValueError:
+    print(
+        f"WARNING: Invalid conversation_relay_eot_threshold {_EOT_THRESHOLD_RAW!r} "
+        "(must be 0.5-0.9); falling back to Twilio's default of 0.8"
+    )
+    CONVERSATION_RELAY_EOT_THRESHOLD = 0.8
 # Empty by default: elspeth_local.twilio_conversation is used, carrying real
 # per-caller identity. Set only by a community deployment without
 # elspeth_local installed, naming whatever HA conversation agent they want
@@ -391,6 +408,7 @@ def log_startup_configuration():
         ),
         conversation_relay_language=CONVERSATION_RELAY_LANGUAGE,
         conversation_relay_voice_configured=bool(CONVERSATION_RELAY_VOICE),
+        conversation_relay_eot_threshold=CONVERSATION_RELAY_EOT_THRESHOLD,
         conversation_route=("generic_ha_agent" if CONVERSATION_AGENT_ID else "elspeth_local"),
         local_audio_pipeline="removed",
         twilio_signature_validation_enabled=(
@@ -433,24 +451,138 @@ async def websocket_connect(url: str):
             yield websocket
 
 
+async def _connect_websocket_raw(url: str):
+    """Same as websocket_connect() but returns the live connection instead of
+    a context manager, since HAConnection below holds it open across turns
+    rather than closing it after one request."""
+    headers = {"Authorization": f"Bearer {SUPERVISOR_TOKEN}"}
+    try:
+        return await websockets.connect(url, additional_headers=headers)
+    except TypeError:
+        return await websockets.connect(url, extra_headers=headers)
+
+
 async def websocket_recv_json(websocket):
     return json.loads(await asyncio.wait_for(websocket.recv(), timeout=10))
 
 
+class HAConnection:
+    """A single authenticated Home Assistant websocket connection, held open
+    and reused for every turn of one phone call.
+
+    Previously each turn called ha_websocket_request() below, which opens a
+    brand-new connection and repeats the full auth_required/auth/auth_ok
+    handshake from scratch every time -- pure overhead added before Core even
+    starts working on the message, repeated on every single utterance of a
+    call. This reconnects only once per call, and again only if the held
+    connection actually drops mid-call.
+    """
+
+    def __init__(self):
+        self._websocket = None
+        self._next_id = 1
+        self._lock = asyncio.Lock()
+
+    async def _connect(self):
+        last_error = None
+        for endpoint in HA_WEBSOCKET_ENDPOINTS:
+            websocket = None
+            try:
+                websocket = await _connect_websocket_raw(endpoint)
+                auth_required = await websocket_recv_json(websocket)
+                if auth_required.get("type") != "auth_required":
+                    last_error = f"{endpoint}: expected auth_required, got {auth_required}"
+                    await websocket.close()
+                    continue
+
+                await websocket.send(json.dumps({
+                    "type": "auth",
+                    "access_token": SUPERVISOR_TOKEN,
+                }))
+                auth_response = await websocket_recv_json(websocket)
+                if auth_response.get("type") != "auth_ok":
+                    last_error = f"{endpoint}: authentication failed: {auth_response}"
+                    await websocket.close()
+                    continue
+
+                self._websocket = websocket
+                self._next_id = 1
+                return
+            except Exception as e:
+                last_error = f"{endpoint}: {e}"
+                if websocket is not None:
+                    try:
+                        await websocket.close()
+                    except Exception:
+                        pass
+
+        raise RuntimeError(last_error or "Could not connect to Home Assistant websocket API")
+
+    async def request(self, message):
+        """Send one request over the held connection, reconnecting once if
+        it has dropped (e.g. Home Assistant restarted mid-call)."""
+        async with self._lock:
+            if self._websocket is None:
+                await self._connect()
+
+            for attempt in (1, 2):
+                self._next_id += 1
+                request_id = self._next_id
+                payload = {"id": request_id, **message}
+                try:
+                    await self._websocket.send(json.dumps(payload))
+                    response = await websocket_recv_json(self._websocket)
+                    if response.get("id") != request_id:
+                        # Out-of-order/unexpected message on a connection that
+                        # should only ever see one in-flight request at a
+                        # time -- treat the connection as unreliable rather
+                        # than risk handing back the wrong turn's reply.
+                        raise RuntimeError(
+                            f"unexpected response id {response.get('id')!r}, expected {request_id}"
+                        )
+                    if not response.get("success"):
+                        return None, f"request failed: {response}"
+                    return response.get("result"), None
+                except Exception as e:
+                    try:
+                        await self._websocket.close()
+                    except Exception:
+                        pass
+                    self._websocket = None
+                    if attempt == 2:
+                        return None, str(e)
+                    await self._connect()
+
+    async def close(self):
+        if self._websocket is not None:
+            try:
+                await self._websocket.close()
+            except Exception:
+                pass
+            self._websocket = None
+
+
+HA_WEBSOCKET_ENDPOINTS = [
+    "ws://supervisor/core/websocket",
+    "ws://supervisor/core/api/websocket",
+    "ws://homeassistant:8123/api/websocket",
+    "ws://localhost:8123/api/websocket",
+]
+
+
 async def ha_websocket_request(message):
-    """Send one request to Home Assistant's websocket API."""
+    """Send one request to Home Assistant's websocket API.
+
+    One-shot: opens a connection, sends exactly one request, and closes.
+    Fine for call-setup-time lookups (find_person_by_phone, the SMS webhook)
+    that happen once, not per conversational turn -- see HAConnection above
+    for the per-call persistent path used by repeated turns.
+    """
     if not SUPERVISOR_TOKEN:
         return None, "SUPERVISOR_TOKEN is not set"
 
-    endpoints_to_try = [
-        "ws://supervisor/core/websocket",
-        "ws://supervisor/core/api/websocket",
-        "ws://homeassistant:8123/api/websocket",
-        "ws://localhost:8123/api/websocket",
-    ]
-
     last_error = None
-    for endpoint in endpoints_to_try:
+    for endpoint in HA_WEBSOCKET_ENDPOINTS:
         try:
             async with websocket_connect(endpoint) as websocket:
                 auth_required = await websocket_recv_json(websocket)
@@ -543,6 +675,7 @@ def conversation_relay_twiml(
         "language": CONVERSATION_RELAY_LANGUAGE,
         "ttsProvider": CONVERSATION_RELAY_TTS_PROVIDER,
         "transcriptionProvider": CONVERSATION_RELAY_TRANSCRIPTION_PROVIDER,
+        "eotThreshold": str(CONVERSATION_RELAY_EOT_THRESHOLD),
     }
     if CONVERSATION_RELAY_VOICE:
         attrs["voice"] = CONVERSATION_RELAY_VOICE
@@ -692,7 +825,9 @@ async def send_to_home_assistant_conversation(
     return reply
 
 
-async def send_to_elspeth_twilio_conversation(text: str, user_id: str, conversation_id: str) -> str:
+async def send_to_elspeth_twilio_conversation(
+    text: str, user_id: str, conversation_id: str, ha_connection: "HAConnection"
+) -> str:
     """Hand one caller turn to Elspeth Core via the narrow, response-only
     elspeth_local.twilio_conversation service.
 
@@ -704,8 +839,12 @@ async def send_to_elspeth_twilio_conversation(text: str, user_id: str, conversat
     (e.g. UNKNOWN_CALLER_HA_USER_ID). send_to_home_assistant_conversation()
     above is the fallback for a community deployment without elspeth_local
     installed, which cannot offer that per-caller identity.
+
+    Uses the call's held HAConnection rather than ha_websocket_request() --
+    this runs once per turn, so reconnecting/re-authenticating from scratch
+    here would repeat that overhead on every utterance of the call.
     """
-    result, error = await ha_websocket_request({
+    result, error = await ha_connection.request({
         "type": "call_service",
         "domain": "elspeth_local",
         "service": "twilio_conversation",
@@ -996,6 +1135,7 @@ async def conversation_relay_websocket(websocket: WebSocket):
     user_name = "unknown"
     conversation_id = None
     session_valid = False
+    ha_connection = HAConnection()
 
     try:
         while True:
@@ -1100,6 +1240,7 @@ async def conversation_relay_websocket(websocket: WebSocket):
                             transcript,
                             user_id,
                             conversation_id,
+                            ha_connection,
                         )
                 except Exception:
                     print("Conversation Relay Elspeth Core request failed.")
@@ -1145,6 +1286,8 @@ async def conversation_relay_websocket(websocket: WebSocket):
             conversation_id=conversation_id,
             reason="websocket_error",
         )
+    finally:
+        await ha_connection.close()
 
 
 @app.post("/conversation_relay/status")

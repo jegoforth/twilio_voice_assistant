@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.9.3
+
+- Reframed `/legal/consent`, `/legal/privacy`, and `/legal/terms` from
+  "personal household assistant" language to "private, non-commercial
+  organization" language, and updated the consent page's CTA banner to
+  list both the original local number and the newly purchased toll-free
+  number (+1 833-709-7901), since the household is now pursuing Toll-Free
+  Verification as a parallel path alongside the still-failing A2P 10DLC
+  campaign.
+
 ## 1.9.2
 
 - Added a visible "Text YES to +1 (901) 308-7408..." call-to-action banner

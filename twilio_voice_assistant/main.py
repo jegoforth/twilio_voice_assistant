@@ -866,6 +866,29 @@ async def send_to_elspeth_twilio_conversation(
 
 @app.get("/")
 async def root():
+    # A real business-website homepage, not a bare API health check --
+    # Toll-Free Verification rejected the prior root response (a plain
+    # {"status": "ok"} JSON blob) as an "Invalid or Inaccessible Website
+    # URL" (error 30473), since it doesn't read as a legitimate website to
+    # their review. _LEGAL_STYLE/_PRIVACY_HTML/etc. are defined later in
+    # this module but resolved at call time, not at def time, so the
+    # forward reference here is safe.
+    return HTMLResponse(f"""<!doctype html>
+<html><head><meta charset="utf-8"><title>Goforth Home</title>{_LEGAL_STYLE}</head>
+<body>
+<h1>Goforth Home</h1>
+<p class="updated">A private, non-commercial household</p>
+<p>Goforth Home operates Elspeth, automation software that runs on its own server for the household's own use -- status updates, ETA notifications, and similar messages to registered members, triggered by voice command or the platform's own automated logic.</p>
+<h2>SMS messaging</h2>
+<p>See the <a href="/legal/consent">Opt-In Consent Evidence</a>, <a href="/legal/privacy">Privacy Policy</a>, and <a href="/legal/terms">Terms &amp; Conditions</a> for how this household's SMS feature works.</p>
+<h2>Contact</h2>
+<p class="contact">Questions can be directed to the account holder directly.</p>
+</body></html>
+""")
+
+
+@app.get("/health")
+async def health():
     return {"status": "ok"}
 
 

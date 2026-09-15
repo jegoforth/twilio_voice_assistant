@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.10.1
+
+- Replaced the root path's bare `{"status": "ok"}` JSON response with a
+  real HTML homepage for Goforth Home, linking to the legal pages.
+  Diagnosed live: Toll-Free Verification rejected the submission with
+  "Invalid or Inaccessible Website URL" (error 30473) because the
+  submitted BusinessWebsite (this add-on's root) returned a bare JSON
+  blob instead of a real webpage. The old JSON health-check response
+  moves to `/health`.
+
 ## 1.10.0
 
 - Reduced per-turn call latency: the Home Assistant websocket connection

@@ -462,8 +462,23 @@ async def _connect_websocket_raw(url: str):
         return await websockets.connect(url, extra_headers=headers)
 
 
-async def websocket_recv_json(websocket):
-    return json.loads(await asyncio.wait_for(websocket.recv(), timeout=10))
+async def websocket_recv_json(websocket, timeout=10):
+    return json.loads(await asyncio.wait_for(websocket.recv(), timeout=timeout))
+
+
+# How long to wait for Core's reply to one caller turn. Found live,
+# 2026-09-17: a weather question (Core doing a live web search + LLM
+# formatting, unlike the near-instant deterministic ETA/scheduler paths)
+# took longer than the old 10s timeout, which HAConnection.request() then
+# treated as a dead connection -- reconnecting and resending the identical
+# question as a second, independent request while Core was still quietly
+# finishing the first one in the background. Both eventually answered, but
+# the caller had already been told Elspeth was "temporarily unavailable"
+# by the time either one came back, and Core's own session history ended
+# up with two different answers to a question it was only ever asked once.
+# 25s comfortably covers a slow search-backed turn without the caller
+# waiting so long they assume the call is dead.
+CORE_REPLY_TIMEOUT_SECONDS = 25
 
 
 class HAConnection:
@@ -520,7 +535,17 @@ class HAConnection:
 
     async def request(self, message):
         """Send one request over the held connection, reconnecting once if
-        it has dropped (e.g. Home Assistant restarted mid-call)."""
+        it has dropped (e.g. Home Assistant restarted mid-call).
+
+        A plain timeout waiting for the reply is deliberately NOT treated
+        the same as a dropped connection: the connection is fine, Core is
+        just still working, and resending would hand Core the same turn
+        a second time as an independent request -- it has no way to know
+        the first attempt is still in flight, so a slow-but-healthy
+        connection would silently produce two different answers to one
+        question instead of one. Only a genuine send/receive failure
+        (the connection itself broke) reconnects and retries.
+        """
         async with self._lock:
             if self._websocket is None:
                 await self._connect()
@@ -531,18 +556,6 @@ class HAConnection:
                 payload = {"id": request_id, **message}
                 try:
                     await self._websocket.send(json.dumps(payload))
-                    response = await websocket_recv_json(self._websocket)
-                    if response.get("id") != request_id:
-                        # Out-of-order/unexpected message on a connection that
-                        # should only ever see one in-flight request at a
-                        # time -- treat the connection as unreliable rather
-                        # than risk handing back the wrong turn's reply.
-                        raise RuntimeError(
-                            f"unexpected response id {response.get('id')!r}, expected {request_id}"
-                        )
-                    if not response.get("success"):
-                        return None, f"request failed: {response}"
-                    return response.get("result"), None
                 except Exception as e:
                     try:
                         await self._websocket.close()
@@ -552,6 +565,53 @@ class HAConnection:
                     if attempt == 2:
                         return None, str(e)
                     await self._connect()
+                    continue
+
+                try:
+                    response = await websocket_recv_json(
+                        self._websocket, timeout=CORE_REPLY_TIMEOUT_SECONDS
+                    )
+                except asyncio.TimeoutError:
+                    # The request was successfully sent and Core may well
+                    # still answer it -- just not to us, and not by
+                    # resending it. Drop this connection so a late reply to
+                    # request_id doesn't get mistaken for the next turn's
+                    # reply, but do not retry.
+                    try:
+                        await self._websocket.close()
+                    except Exception:
+                        pass
+                    self._websocket = None
+                    return None, "timed out waiting for a reply"
+                except Exception as e:
+                    try:
+                        await self._websocket.close()
+                    except Exception:
+                        pass
+                    self._websocket = None
+                    if attempt == 2:
+                        return None, str(e)
+                    await self._connect()
+                    continue
+
+                if response.get("id") != request_id:
+                    # Out-of-order/unexpected message on a connection that
+                    # should only ever see one in-flight request at a
+                    # time -- treat the connection as unreliable rather
+                    # than risk handing back the wrong turn's reply.
+                    try:
+                        await self._websocket.close()
+                    except Exception:
+                        pass
+                    self._websocket = None
+                    error = f"unexpected response id {response.get('id')!r}, expected {request_id}"
+                    if attempt == 2:
+                        return None, error
+                    await self._connect()
+                    continue
+                if not response.get("success"):
+                    return None, f"request failed: {response}"
+                return response.get("result"), None
 
     async def close(self):
         if self._websocket is not None:

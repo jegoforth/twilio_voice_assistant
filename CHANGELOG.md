@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.10.3
+
+- Raised the timeout waiting for Core's reply over the held Home Assistant
+  websocket from 10s to 25s, and stopped treating a plain timeout the same
+  as a dropped connection. Diagnosed live, 2026-09-17: a weather question
+  (Core doing a live web search, unlike the near-instant deterministic
+  ETA/scheduler paths) took longer than 10s, so `HAConnection.request()`
+  assumed the connection had died, reconnected, and resent the identical
+  question as an independent second request. Core answered both --
+  differently, since each was a fresh live search -- but the caller had
+  already been told Elspeth was "temporarily unavailable" by the time
+  either came back, and neither answer was ever actually spoken to them.
+  Only a genuine send/receive failure now reconnects and retries; a
+  timeout fails that turn without resending it.
+
 ## 1.10.2
 
 - Set `interruptible="speech"` and `interruptSensitivity="low"` on

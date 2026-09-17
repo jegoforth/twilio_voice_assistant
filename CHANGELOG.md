@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.10.2
+
+- Set `interruptible="speech"` and `interruptSensitivity="low"` on
+  `<ConversationRelay>` instead of leaving them unset (Twilio defaults to
+  `interruptible="any"` with high sensitivity). Diagnosed live, 2026-09-16:
+  a call over car Bluetooth hands-free audio echoed Elspeth's own TTS back
+  through the car's weak echo cancellation, and Twilio treated that faint,
+  degraded echo as a new caller utterance, derailing the conversation.
+  Requiring recognized speech at low sensitivity keeps real callers just as
+  responsive while filtering out that kind of self-echo.
+
 ## 1.10.1
 
 - Replaced the root path's bare `{"status": "ok"}` JSON response with a

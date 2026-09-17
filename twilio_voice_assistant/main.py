@@ -676,6 +676,17 @@ def conversation_relay_twiml(
         "ttsProvider": CONVERSATION_RELAY_TTS_PROVIDER,
         "transcriptionProvider": CONVERSATION_RELAY_TRANSCRIPTION_PROVIDER,
         "eotThreshold": str(CONVERSATION_RELAY_EOT_THRESHOLD),
+        # Left unset, Twilio defaults to interruptible="any" with high
+        # sensitivity -- any detected audio, not just recognized speech,
+        # can interrupt playback. Found live, 2026-09-16: a call over car
+        # Bluetooth echoed Elspeth's own TTS back through the hands-free
+        # mic's weak echo cancellation, and that faint, degraded echo was
+        # picked up as a new caller utterance. Requiring actual speech at
+        # low sensitivity gives real callers -- close mic, full volume --
+        # the same responsiveness while filtering out that kind of
+        # distorted self-echo.
+        "interruptible": "speech",
+        "interruptSensitivity": "low",
     }
     if CONVERSATION_RELAY_VOICE:
         attrs["voice"] = CONVERSATION_RELAY_VOICE

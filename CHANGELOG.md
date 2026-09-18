@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.10.4
+
+- Persist TIMING logs to `/data/timing-log.jsonl` (this add-on's own
+  dedicated, rebuild-surviving volume), not just stdout. Found live,
+  2026-09-18: a performance review asking for "the longest delays over the
+  past few days" turned up exactly one real call's worth of data, because
+  two unrelated add-on rebuilds in that same window each silently
+  discarded docker's log history for the old container. Rotated at 10MB
+  (one backup kept) -- a rolling window for performance review, not a
+  permanent record.
+
 ## 1.10.3
 
 - Raised the timeout waiting for Core's reply over the held Home Assistant

@@ -97,6 +97,32 @@ if missing_vars:
         "Please configure the addon with your API credentials."
     )
 
+# /data is this add-on's own dedicated persistent volume -- always mounted
+# by the Supervisor with no config.json changes needed, and unlike the
+# container's own filesystem or docker's own log driver, it survives an
+# add-on rebuild/recreate. Found live, 2026-09-18: reviewing "the longest
+# delays over the past few days" turned up exactly one real call's worth
+# of TIMING data, because every container rebuild during that same window
+# (two, for unrelated fixes) silently discarded docker's log history for
+# the old container. Rotated at a fixed size rather than kept forever --
+# this is for a rolling performance review, not a permanent audit trail.
+TIMING_LOG_PATH = "/data/timing-log.jsonl"
+TIMING_LOG_MAX_BYTES = 10 * 1024 * 1024
+
+
+def _append_timing_log(line: str) -> None:
+    try:
+        if (os.path.exists(TIMING_LOG_PATH)
+                and os.path.getsize(TIMING_LOG_PATH) > TIMING_LOG_MAX_BYTES):
+            os.replace(TIMING_LOG_PATH, TIMING_LOG_PATH + ".1")
+        with open(TIMING_LOG_PATH, "a", encoding="utf-8") as handle:
+            handle.write(line + "\n")
+    except OSError:
+        # Best-effort, same as the stdout print below -- a full disk or a
+        # permissions problem must never break a real call over this.
+        pass
+
+
 def log_timing(event: str, **fields):
     """Emit structured timing logs without secrets, PINs, or transcript text."""
     payload = {
@@ -104,7 +130,9 @@ def log_timing(event: str, **fields):
         "ts": round(time.time(), 3),
         **fields,
     }
-    print("TIMING " + json.dumps(payload, sort_keys=True))
+    line = json.dumps(payload, sort_keys=True)
+    print("TIMING " + line)
+    _append_timing_log(line)
 
 
 def debug_log(event: str, **fields):

@@ -976,12 +976,12 @@ async def root():
 <html><head><meta charset="utf-8"><title>Goforth Home</title>{_LEGAL_STYLE}</head>
 <body>
 <h1>Goforth Home</h1>
-<p class="updated">A private, non-commercial household</p>
-<p>Goforth Home operates Elspeth, automation software that runs on its own server for the household's own use -- status updates, ETA notifications, and similar messages to registered members, triggered by voice command or the platform's own automated logic.</p>
+<p class="updated">A sole proprietorship</p>
+<p>Goforth Home operates Elspeth, private household automation software that runs on its own server -- status updates, ETA notifications, and similar messages to registered members, triggered by voice command or the platform's own automated logic.</p>
 <h2>SMS messaging</h2>
 <p>See the <a href="/legal/consent">Opt-In Consent Evidence</a>, <a href="/legal/privacy">Privacy Policy</a>, and <a href="/legal/terms">Terms &amp; Conditions</a> for how this household's SMS feature works.</p>
 <h2>Contact</h2>
-<p class="contact">Questions can be directed to the account holder directly.</p>
+<p class="contact">Questions can be directed to <a href="mailto:admin@goforthha.org">admin@goforthha.org</a>.</p>
 </body></html>
 """)
 
@@ -1012,7 +1012,7 @@ _PRIVACY_HTML = f"""<!doctype html>
 <body>
 <h1>Privacy Policy — Goforth Home</h1>
 <p class="updated">Effective September 13, 2026</p>
-<p>Goforth Home is a private, non-commercial organization that operates automation software called Elspeth. This policy covers Elspeth's SMS messaging feature.</p>
+<p>Goforth Home is a sole proprietorship that operates automation software called Elspeth. This policy covers Elspeth's SMS messaging feature.</p>
 <h2>What we collect and why</h2>
 <p>We hold the mobile phone number of each registered member who has opted in by texting this number directly, solely for the purpose of sending those messages (for example, status updates or estimated arrival times).</p>
 <h2>How your number is used</h2>
@@ -1028,7 +1028,7 @@ _PRIVACY_HTML = f"""<!doctype html>
 <h2>Opting out</h2>
 <p>Reply <strong>STOP</strong> to any message at any time to opt out of receiving further messages. Reply <strong>HELP</strong> for assistance.</p>
 <h2>Contact</h2>
-<p class="contact">Questions about this policy can be directed to the account holder directly.</p>
+<p class="contact">Questions about this policy can be directed to <a href="mailto:admin@goforthha.org">admin@goforthha.org</a>.</p>
 </body></html>
 """
 
@@ -1037,7 +1037,7 @@ _TERMS_HTML = f"""<!doctype html>
 <body>
 <h1>Terms &amp; Conditions — Goforth Home</h1>
 <p class="updated">Effective September 13, 2026</p>
-<p>Goforth Home is a private, non-commercial organization that operates automation software called Elspeth. This page describes the terms of Elspeth's SMS messaging feature.</p>
+<p>Goforth Home is a sole proprietorship that operates automation software called Elspeth. This page describes the terms of Elspeth's SMS messaging feature.</p>
 <h2>The service</h2>
 <p>Elspeth, on behalf of Goforth Home, may send short SMS messages to registered members who have opted in by texting this number directly — for example, status updates or estimated arrival times, sent by request or as part of ordinary use.</p>
 <h2>Enrollment</h2>
@@ -1054,7 +1054,7 @@ _TERMS_HTML = f"""<!doctype html>
 <h2>Privacy</h2>
 <p>See the <a href="/legal/privacy">Privacy Policy</a> for how your phone number is handled.</p>
 <h2>Contact</h2>
-<p class="contact">Questions about these terms can be directed to the account holder directly.</p>
+<p class="contact">Questions about these terms can be directed to <a href="mailto:admin@goforthha.org">admin@goforthha.org</a>.</p>
 </body></html>
 """
 
@@ -1080,7 +1080,7 @@ _CONSENT_HTML = f"""<!doctype html>
 <h2>Related pages</h2>
 <p>See the <a href="/legal/privacy">Privacy Policy</a> and <a href="/legal/terms">Terms &amp; Conditions</a> for how phone numbers are handled and the full terms of this feature.</p>
 <h2>Contact</h2>
-<p class="contact">Questions about this consent process can be directed to the account holder directly.</p>
+<p class="contact">Questions about this consent process can be directed to <a href="mailto:admin@goforthha.org">admin@goforthha.org</a>.</p>
 </body></html>
 """
 

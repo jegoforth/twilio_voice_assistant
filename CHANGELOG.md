@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.10.5
+
+- Fixed two wording issues on the public legal pages that the site
+  serves for A2P 10DLC/Toll-Free Verification review: every "Contact"
+  section said only "the account holder directly" with no actual
+  address, and the homepage/privacy/terms pages described Goforth Home
+  as "a private, non-commercial household/organization" -- directly
+  contradicting the `SOLE_PROPRIETOR` business type declared on the
+  TFV application itself. Found live, 2026-09-23, reviewing a TFV
+  rejection (error 30489, "Website Must Be Established and Active")
+  that Twilio's stated possible causes list as "lack of contact
+  information" and "lack of company services". Contact sections now
+  link `admin@goforthha.org` directly; the business-type language now
+  matches what's on file with Twilio.
+
 ## 1.10.4
 
 - Persist TIMING logs to `/data/timing-log.jsonl` (this add-on's own

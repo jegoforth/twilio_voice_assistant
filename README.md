@@ -129,6 +129,8 @@ Your public HTTPS proxy or tunnel should forward only these paths to the App on 
 /conversation_relay/status
 ```
 
+If you publish legal pages for SMS registration (step 6), also forward `/` and `/legal/*`.
+
 Do not expose these paths publicly:
 
 ```text
@@ -184,7 +186,7 @@ Twilio's A2P 10DLC and Toll-Free Verification reviews require live homepage, pri
 | `/legal/terms` | `legal/terms.html` |
 | `/legal/consent` | `legal/consent.html` |
 
-Put these files in a `legal/` folder inside this App's config directory (`/addon_configs/<id>_twilio_voice_assistant/` on the host, reachable through the Samba or SSH add-ons). Each file is served as-is. Any file that is missing is replaced by a neutral placeholder page.
+Put these files in a `legal/` folder inside this App's config directory (`/addon_configs/<id>_twilio_voice_assistant/` on the host, reachable through the Samba or SSH add-ons). Each file is served as-is. Any file that is missing is replaced by a neutral placeholder page. Your proxy or tunnel must also forward `/` and `/legal/*` to the App, in addition to the Twilio routes in step 2, or reviewers will not be able to reach these pages.
 
 ## Reverse Proxy Guidance
 

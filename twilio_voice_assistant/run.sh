@@ -36,6 +36,7 @@ os.environ['PUBLIC_BASE_URL'] = public_base_url
 os.environ['CONVERSATION_AGENT_ID'] = str(
     config.get('conversation_agent_id', '')
 ).strip()
+os.environ['ASSISTANT_NAME'] = str(config.get('assistant_name', '') or '').strip()
 os.environ['CONVERSATION_RELAY_TTS_PROVIDER'] = str(
     config.get('conversation_relay_tts_provider', 'ElevenLabs')
 ).strip()

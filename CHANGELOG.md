@@ -1,18 +1,31 @@
 # Changelog
 
+## 1.11.0
+
+- Operator-specific legal pages are no longer built into the add-on. `/`,
+  `/legal/privacy`, `/legal/terms` and `/legal/consent` now serve
+  `index.html`, `privacy.html`, `terms.html` and `consent.html` from a
+  `legal/` folder in this add-on's config directory (`addon_config`, mapped
+  at `/config`), and a neutral placeholder when a file is missing. Existing
+  installs that rely on these pages for A2P 10DLC or Toll-Free Verification
+  must copy their pages into that folder before updating.
+- Added an `assistant_name` option for the spoken greeting to unrecognized
+  callers ("Hello, this is <name>. To whom am I speaking?") and the
+  unavailable message. Blank uses a generic greeting.
+
 ## 1.10.5
 
 - Fixed two wording issues on the public legal pages that the site
   serves for A2P 10DLC/Toll-Free Verification review: every "Contact"
   section said only "the account holder directly" with no actual
-  address, and the homepage/privacy/terms pages described Goforth Home
+  address, and the homepage/privacy/terms pages described the operator
   as "a private, non-commercial household/organization" -- directly
   contradicting the `SOLE_PROPRIETOR` business type declared on the
   TFV application itself. Found live, 2026-09-23, reviewing a TFV
   rejection (error 30489, "Website Must Be Established and Active")
   that Twilio's stated possible causes list as "lack of contact
   information" and "lack of company services". Contact sections now
-  link `admin@goforthha.org` directly; the business-type language now
+  link a real contact address directly; the business-type language now
   matches what's on file with Twilio.
 
 ## 1.10.4
@@ -36,7 +49,7 @@
   assumed the connection had died, reconnected, and resent the identical
   question as an independent second request. Core answered both --
   differently, since each was a fresh live search -- but the caller had
-  already been told Elspeth was "temporarily unavailable" by the time
+  already been told the assistant was "temporarily unavailable" by the time
   either came back, and neither answer was ever actually spoken to them.
   Only a genuine send/receive failure now reconnects and retries; a
   timeout fails that turn without resending it.
@@ -46,7 +59,7 @@
 - Set `interruptible="speech"` and `interruptSensitivity="low"` on
   `<ConversationRelay>` instead of leaving them unset (Twilio defaults to
   `interruptible="any"` with high sensitivity). Diagnosed live, 2026-09-16:
-  a call over car Bluetooth hands-free audio echoed Elspeth's own TTS back
+  a call over car Bluetooth hands-free audio echoed the assistant's own TTS back
   through the car's weak echo cancellation, and Twilio treated that faint,
   degraded echo as a new caller utterance, derailing the conversation.
   Requiring recognized speech at low sensitivity keeps real callers just as
@@ -55,7 +68,7 @@
 ## 1.10.1
 
 - Replaced the root path's bare `{"status": "ok"}` JSON response with a
-  real HTML homepage for Goforth Home, linking to the legal pages.
+  real HTML homepage for the operator, linking to the legal pages.
   Diagnosed live: Toll-Free Verification rejected the submission with
   "Invalid or Inaccessible Website URL" (error 30473) because the
   submitted BusinessWebsite (this add-on's root) returned a bare JSON
@@ -81,12 +94,13 @@
 
 ## 1.9.4
 
-- Made "Goforth Home" the consistent, primary name across all three legal
-  pages (titles, headings, and body copy), with "Elspeth" mentioned only
-  as the name of the software Goforth Home operates. Confirmed via the
-  Twilio API that the actual registered A2P brand (TrustProduct
-  friendly_name) is "Goforth Home" -- every legal page previously led
-  with "Elspeth" instead, meaning a reviewer cross-checking the
+- Made the registered business name the consistent, primary name across
+  all three legal pages (titles, headings, and body copy), with the
+  assistant's name mentioned only as the name of the software the
+  business operates. Confirmed via the Twilio API that the actual
+  registered A2P brand (TrustProduct friendly_name) is the business
+  name -- every legal page previously led with the assistant's name
+  instead, meaning a reviewer cross-checking the
   registered brand against the campaign's own materials would find no
   match. This was flagged directly by the account holder as a likely
   contributor to repeated CTA-verification rejections.
@@ -97,13 +111,13 @@
   "personal household assistant" language to "private, non-commercial
   organization" language, and updated the consent page's CTA banner to
   list both the original local number and the newly purchased toll-free
-  number (+1 833-709-7901), since the household is now pursuing Toll-Free
+  number, since the household is now pursuing Toll-Free
   Verification as a parallel path alongside the still-failing A2P 10DLC
   campaign.
 
 ## 1.9.2
 
-- Added a visible "Text YES to +1 (901) 308-7408..." call-to-action banner
+- Added a visible "Text YES to <number>..." call-to-action banner
   to the top of `/legal/consent`. Twilio's revise-and-resubmit form
   explicitly asks for a publicly reachable page showing where the opt-in
   CTA is displayed, not just a prose description of the opt-in mechanism
@@ -128,8 +142,8 @@
   campaign needs -- verbal consent alone did not pass CTA verification
   (error 30909). Twilio's own Advanced Opt-Out still independently
   enforces STOP at the carrier level; this webhook only updates
-  Elspeth's own record, which is what lets Elspeth (elspeth-core)
-  decide not to attempt a send in the first place. Elspeth's own
+  the assistant's own record, which is what lets the assistant (e.g. Elspeth Core)
+  decide not to attempt a send in the first place. the assistant's own
   request side can only ever read this field, never write it -- consent
   has to come from the person's own phone, not from anyone else saying
   so on their behalf.
@@ -156,7 +170,7 @@
 - Fix: an unrecognized caller's opening greeting said "Hello unknown. What
   would you like to do?" -- a leftover placeholder value spoken aloud, and
   a prompt that skipped past the identity ladder entirely. Now opens with
-  "Hello, this is Elspeth. To whom am I speaking?" for that case, matching
+  "Hello, this is <assistant>. To whom am I speaking?" for that case, matching
   the actual voice flow. Known callers are unaffected.
 
 ## 1.5.0

@@ -56,6 +56,9 @@ except ValueError:
 # elspeth_local installed, naming whatever HA conversation agent they want
 # calls routed to instead -- see send_to_home_assistant_conversation().
 CONVERSATION_AGENT_ID = os.getenv("CONVERSATION_AGENT_ID", "").strip()
+# Spoken name only; blank keeps the greeting generic for installs that
+# haven't named their assistant.
+ASSISTANT_NAME = os.getenv("ASSISTANT_NAME", "").strip()
 ALLOW_UNSIGNED_TWILIO_REQUESTS_FOR_DEV = (
     os.getenv("ALLOW_UNSIGNED_TWILIO_REQUESTS_FOR_DEV", "false").strip().lower()
     in {"1", "true", "yes", "on"}
@@ -375,7 +378,7 @@ async def find_person_by_phone(from_number: str | None):
 # registration by hand, since there is no API this add-on queries for it.
 # Twilio's own Advanced Opt-Out (Messaging Service level) independently
 # blocks future sends to a STOP'd number at the carrier layer regardless
-# of what this webhook does; this is Elspeth's own record of consent,
+# of what this webhook does; this is the assistant's own record of consent,
 # which is what lets it decide not to attempt a send in the first place,
 # and is the actual verifiable "Via Text" opt-in flow TCR's campaign
 # vetting checks for -- verbal consent alone did not pass (error 30909).
@@ -501,7 +504,7 @@ async def websocket_recv_json(websocket, timeout=10):
 # treated as a dead connection -- reconnecting and resending the identical
 # question as a second, independent request while Core was still quietly
 # finishing the first one in the background. Both eventually answered, but
-# the caller had already been told Elspeth was "temporarily unavailable"
+# the caller had already been told the assistant was "temporarily unavailable"
 # by the time either one came back, and Core's own session history ended
 # up with two different answers to a question it was only ever asked once.
 # 25s comfortably covers a slow search-backed turn without the caller
@@ -753,7 +756,8 @@ def conversation_relay_twiml(
     # ladder Core is about to run. Open with the ladder's own first rung
     # instead, matching the spoken flow exactly.
     welcome_greeting = (
-        "Hello, this is Elspeth. To whom am I speaking?"
+        (f"Hello, this is {ASSISTANT_NAME}. To whom am I speaking?"
+         if ASSISTANT_NAME else "Hello. To whom am I speaking?")
         if user_id == UNKNOWN_CALLER_HA_USER_ID
         else f"Hello {user_name}. What would you like to do?"
     )
@@ -767,7 +771,7 @@ def conversation_relay_twiml(
         # Left unset, Twilio defaults to interruptible="any" with high
         # sensitivity -- any detected audio, not just recognized speech,
         # can interrupt playback. Found live, 2026-09-16: a call over car
-        # Bluetooth echoed Elspeth's own TTS back through the hands-free
+        # Bluetooth echoed the assistant's own TTS back through the hands-free
         # mic's weak echo cancellation, and that faint, degraded echo was
         # picked up as a new caller utterance. Requiring actual speech at
         # low sensitivity gives real callers -- close mic, full volume --
@@ -963,27 +967,46 @@ async def send_to_elspeth_twilio_conversation(
     return reply
 
 
-@app.get("/")
-async def root():
-    # A real business-website homepage, not a bare API health check --
-    # Toll-Free Verification rejected the prior root response (a plain
-    # {"status": "ok"} JSON blob) as an "Invalid or Inaccessible Website
-    # URL" (error 30473), since it doesn't read as a legitimate website to
-    # their review. _LEGAL_STYLE/_PRIVACY_HTML/etc. are defined later in
-    # this module but resolved at call time, not at def time, so the
-    # forward reference here is safe.
+# Operator-specific pages (business name, contact address, opt-in numbers)
+# never live in this public repo. Each installation drops its own HTML into
+# the add-on's config folder (mapped at /config via addon_config), and
+# anything missing falls back to a neutral placeholder. A2P 10DLC and
+# Toll-Free Verification both need these as live URLs on PUBLIC_BASE_URL,
+# which is why the add-on serves them at all.
+LEGAL_PAGES_DIR = os.getenv("LEGAL_PAGES_DIR", "/config/legal")
+
+_PLACEHOLDER_STYLE = """
+<style>
+  body{font-family:system-ui,sans-serif;line-height:1.6;max-width:680px;
+       margin:0 auto;padding:2.5rem 1.5rem;color:#2a2622;background:#faf9f7;}
+  code{background:#eee;padding:.1rem .3rem;border-radius:3px;}
+</style>
+"""
+
+
+def _legal_page(filename: str, title: str) -> HTMLResponse:
+    path = os.path.join(LEGAL_PAGES_DIR, filename)
+    try:
+        with open(path, "r", encoding="utf-8") as page:
+            return HTMLResponse(page.read())
+    except FileNotFoundError:
+        pass
+    except OSError as error:
+        print(f"WARNING: Could not read legal page {path}: {error}")
     return HTMLResponse(f"""<!doctype html>
-<html><head><meta charset="utf-8"><title>Goforth Home</title>{_LEGAL_STYLE}</head>
+<html><head><meta charset="utf-8"><title>{escape(title)}</title>{_PLACEHOLDER_STYLE}</head>
 <body>
-<h1>Goforth Home</h1>
-<p class="updated">A sole proprietorship</p>
-<p>Goforth Home operates Elspeth, private household automation software that runs on its own server -- status updates, ETA notifications, and similar messages to registered members, triggered by voice command or the platform's own automated logic.</p>
-<h2>SMS messaging</h2>
-<p>See the <a href="/legal/consent">Opt-In Consent Evidence</a>, <a href="/legal/privacy">Privacy Policy</a>, and <a href="/legal/terms">Terms &amp; Conditions</a> for how this household's SMS feature works.</p>
-<h2>Contact</h2>
-<p class="contact">Questions can be directed to <a href="mailto:admin@goforthha.org">admin@goforthha.org</a>.</p>
+<h1>{escape(title)}</h1>
+<p>This page has not been configured for this installation.</p>
+<p>Operators: place <code>{escape(filename)}</code> in the <code>legal/</code>
+folder of this add-on's config directory to publish it here.</p>
 </body></html>
 """)
+
+
+@app.get("/")
+async def root():
+    return _legal_page("index.html", "Home")
 
 
 @app.get("/health")
@@ -991,113 +1014,19 @@ async def health():
     return {"status": "ok"}
 
 
-# A2P 10DLC campaign registration requires live privacy-policy and
-# terms-and-conditions URLs. This add-on's public domain (PUBLIC_BASE_URL)
-# already exists for Twilio's own webhooks, so these two static pages are
-# served from here rather than standing up separate hosting.
-_LEGAL_STYLE = """
-<style>
-  body{font-family:Georgia,'Times New Roman',serif;line-height:1.6;max-width:680px;
-       margin:0 auto;padding:2.5rem 1.5rem 4rem;color:#2a2622;background:#faf9f7;}
-  h1{font-size:1.6rem;margin-bottom:.25rem;}
-  .updated{color:#6b6459;font-size:.9rem;margin-bottom:2rem;}
-  h2{font-size:1.1rem;margin-top:2rem;border-bottom:1px solid #e5e0d8;padding-bottom:.3rem;}
-  li{margin-bottom:.5rem;}
-  .contact{margin-top:2.5rem;padding-top:1rem;border-top:1px solid #e5e0d8;color:#6b6459;font-size:.95rem;}
-</style>
-"""
-
-_PRIVACY_HTML = f"""<!doctype html>
-<html><head><meta charset="utf-8"><title>Goforth Home Privacy Policy</title>{_LEGAL_STYLE}</head>
-<body>
-<h1>Privacy Policy — Goforth Home</h1>
-<p class="updated">Effective September 13, 2026</p>
-<p>Goforth Home is a sole proprietorship that operates automation software called Elspeth. This policy covers Elspeth's SMS messaging feature.</p>
-<h2>What we collect and why</h2>
-<p>We hold the mobile phone number of each registered member who has opted in by texting this number directly, solely for the purpose of sending those messages (for example, status updates or estimated arrival times).</p>
-<h2>How your number is used</h2>
-<ul>
-  <li>Your phone number is used only to send you messages you've agreed to receive from Goforth Home's software.</li>
-  <li>We do not sell, rent, trade, or share your mobile phone number or opt-in status with any third party or affiliate for marketing or any other purpose.</li>
-  <li>Your number is not used for any purpose outside this messaging feature.</li>
-</ul>
-<h2>Message frequency</h2>
-<p>Message frequency varies and is occasional, sent only as needed (for example, when a status update is requested). This is not a recurring or scheduled marketing program.</p>
-<h2>Message and data rates</h2>
-<p>Message and data rates may apply, depending on your mobile carrier and plan.</p>
-<h2>Opting out</h2>
-<p>Reply <strong>STOP</strong> to any message at any time to opt out of receiving further messages. Reply <strong>HELP</strong> for assistance.</p>
-<h2>Contact</h2>
-<p class="contact">Questions about this policy can be directed to <a href="mailto:admin@goforthha.org">admin@goforthha.org</a>.</p>
-</body></html>
-"""
-
-_TERMS_HTML = f"""<!doctype html>
-<html><head><meta charset="utf-8"><title>Goforth Home Terms &amp; Conditions</title>{_LEGAL_STYLE}</head>
-<body>
-<h1>Terms &amp; Conditions — Goforth Home</h1>
-<p class="updated">Effective September 13, 2026</p>
-<p>Goforth Home is a sole proprietorship that operates automation software called Elspeth. This page describes the terms of Elspeth's SMS messaging feature.</p>
-<h2>The service</h2>
-<p>Elspeth, on behalf of Goforth Home, may send short SMS messages to registered members who have opted in by texting this number directly — for example, status updates or estimated arrival times, sent by request or as part of ordinary use.</p>
-<h2>Enrollment</h2>
-<p>Only phone numbers that have sent this number a recognized opt-in keyword (START, YES, or UNSTOP) are enrolled to receive messages. There is no public sign-up, and no member is ever enrolled without sending that message themselves.</p>
-<h2>Message frequency</h2>
-<p>Message frequency varies and is occasional, sent only as needed. This is not a recurring or scheduled marketing program.</p>
-<h2>Message and data rates</h2>
-<p>Message and data rates may apply, depending on your mobile carrier and plan.</p>
-<h2>Opting out and help</h2>
-<ul>
-  <li>Reply <strong>STOP</strong> to any message at any time to opt out of receiving further messages.</li>
-  <li>Reply <strong>HELP</strong> for assistance.</li>
-</ul>
-<h2>Privacy</h2>
-<p>See the <a href="/legal/privacy">Privacy Policy</a> for how your phone number is handled.</p>
-<h2>Contact</h2>
-<p class="contact">Questions about these terms can be directed to <a href="mailto:admin@goforthha.org">admin@goforthha.org</a>.</p>
-</body></html>
-"""
-
-
-_CONSENT_HTML = f"""<!doctype html>
-<html><head><meta charset="utf-8"><title>Goforth Home Consent Evidence</title>{_LEGAL_STYLE}</head>
-<body>
-<h1>Opt-In Consent Evidence — Goforth Home</h1>
-<p class="updated">Effective September 13, 2026</p>
-<div style="background:#fff8ec;border:2px solid #d9a441;border-radius:8px;padding:1.25rem 1.5rem;margin:1.5rem 0;">
-  <p style="margin:0 0 .5rem;font-size:1.15rem;font-weight:600;">Text <strong>YES</strong> to <strong>+1&nbsp;(901)&nbsp;308-7408</strong> or <strong>+1&nbsp;(833)&nbsp;709-7901</strong> to opt in to occasional Goforth Home messages (status updates, ETA notifications) sent via Elspeth.</p>
-  <p style="margin:0;color:#6b6459;">Msg &amp; data rates may apply. Message frequency varies. Reply <strong>HELP</strong> for help, <strong>STOP</strong> to cancel at any time.</p>
-</div>
-<p>Goforth Home's SMS feature has no public sign-up form. Consent is a real, carrier-witnessed text message: a registered member sends one of these numbers a recognized opt-in keyword from their own phone, before Elspeth (Goforth Home's automation software) will ever send that number a message. This page documents exactly how that consent is obtained, for verification purposes.</p>
-<h2>Who can enroll</h2>
-<p>Only phone numbers belonging to registered members of the operating organization. No one outside the organization is ever enrolled, and no phone number is ever added to the system except by that person's own phone sending the opt-in text below.</p>
-<h2>How opt-in works</h2>
-<p>A registered member sends one of the following keywords, as a text message, directly to either number above from their own phone:</p>
-<blockquote>START, YES, or UNSTOP</blockquote>
-<p>Twilio's own automatic opt-in confirmation is sent back immediately once that keyword is received. That confirmed, carrier-recorded event is the enrollment -- not a conversation, a form, or anything relayed by a third party. Only after this event has occurred does Elspeth's software consider that phone number eligible to receive a message.</p>
-<h2>How opt-out works</h2>
-<p>A registered member can send STOP, CANCEL, QUIT, OPTOUT, UNSUBSCRIBE, STOPALL, REVOKE, or END at any time, from the same phone, to withdraw consent. Twilio's own automatic opt-out confirmation is sent back immediately, and Elspeth's software will not send that number another message unless it opts back in.</p>
-<h2>Related pages</h2>
-<p>See the <a href="/legal/privacy">Privacy Policy</a> and <a href="/legal/terms">Terms &amp; Conditions</a> for how phone numbers are handled and the full terms of this feature.</p>
-<h2>Contact</h2>
-<p class="contact">Questions about this consent process can be directed to <a href="mailto:admin@goforthha.org">admin@goforthha.org</a>.</p>
-</body></html>
-"""
-
-
 @app.get("/legal/consent")
 async def legal_consent():
-    return HTMLResponse(_CONSENT_HTML)
+    return _legal_page("consent.html", "Opt-In Consent")
 
 
 @app.get("/legal/privacy")
 async def legal_privacy():
-    return HTMLResponse(_PRIVACY_HTML)
+    return _legal_page("privacy.html", "Privacy Policy")
 
 
 @app.get("/legal/terms")
 async def legal_terms():
-    return HTMLResponse(_TERMS_HTML)
+    return _legal_page("terms.html", "Terms & Conditions")
 
 
 # Twilio webhook endpoints
@@ -1155,7 +1084,7 @@ async def incoming_sms(
     MessageSid: str = Form(None),
 ):
     """Twilio's inbound-SMS webhook -- the only place sms_opted_in is ever
-    written. Elspeth's own voice/text-request side (elspeth-core) can only
+    written. the assistant's own voice/text-request side (elspeth-core) can only
     ever read this field, never set it: consent has to come from the
     person's own phone actually replying, not from anyone else saying so
     on their behalf.
@@ -1163,7 +1092,7 @@ async def incoming_sms(
     Twilio's Advanced Opt-Out (configured at the Messaging Service level)
     sends the actual START/STOP/HELP confirmation replies and enforces
     carrier-level suppression automatically -- this webhook only updates
-    Elspeth's own household record, and returns empty TwiML (no
+    the assistant's own household record, and returns empty TwiML (no
     additional reply of its own).
     """
     await validate_twilio_http_request(request, route="/incoming_sms", call_sid=MessageSid)
@@ -1367,7 +1296,10 @@ async def conversation_relay_websocket(websocket: WebSocket):
                 except Exception:
                     print("Conversation Relay Elspeth Core request failed.")
                     traceback.print_exc()
-                    reply = "Sorry, Elspeth is temporarily unavailable."
+                    reply = (
+                        f"Sorry, {ASSISTANT_NAME or 'the assistant'} is "
+                        "temporarily unavailable."
+                    )
 
                 await websocket.send_text(json.dumps({
                     "type": "text",

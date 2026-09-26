@@ -103,6 +103,7 @@ conversation_relay_transcription_provider: Deepgram
 conversation_relay_language: en-US
 allow_unsigned_twilio_requests_for_dev: false
 debug: false
+log_call_transcripts: false
 ```
 
 Configuration notes:
@@ -112,6 +113,7 @@ Configuration notes:
 - `conversation_relay_tts_provider` should be a Twilio-supported provider such as `ElevenLabs`.
 - `conversation_relay_voice` is provider/account specific. Do not assume a voice ID from another installation will work.
 - `allow_unsigned_twilio_requests_for_dev` must remain `false` for public or exposed endpoints.
+- `log_call_transcripts` records each turn of a call (what the caller said and what Elspeth replied) so a test call can be reviewed afterward. Turns go to the App log prefixed `TRANSCRIPT` and to `/data/call-transcripts.jsonl`, which survives App rebuilds and rotates at 10MB. It's `false` by default because it records real spoken content, not just metadata: turn it on while you're testing and back off once you're done.
 
 Start the App after saving the configuration.
 

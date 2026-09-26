@@ -56,6 +56,9 @@ os.environ['ALLOW_UNSIGNED_TWILIO_REQUESTS_FOR_DEV'] = str(
 ).strip().lower()
 
 os.environ['DEBUG'] = str(config.get('debug', False)).lower()
+os.environ['LOG_CALL_TRANSCRIPTS'] = str(
+    config.get('log_call_transcripts', False)
+).lower()
 
 port = config.get('port', 8000)
 

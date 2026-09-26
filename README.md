@@ -4,7 +4,7 @@ Release versions are mapped to immutable tags and build revisions using the [rel
 
 Call a Twilio phone number and talk to your Home Assistant voice assistant.
 
-Twilio Voice Assistant is a Home Assistant App that receives Twilio Voice calls, resolves the caller's identity, sends transcript text to your Elspeth/Home Assistant conversation agent, and returns response text through Twilio Conversation Relay using a configured voice provider such as ElevenLabs.
+Twilio Voice Assistant is a Home Assistant App that receives Twilio Voice calls, resolves the caller's identity, sends transcript text to your Home Assistant conversation agent, and returns response text through Twilio Conversation Relay using a configured voice provider such as ElevenLabs.
 
 The App is a text bridge. It does not run local STT/TTS or generated audio-file playback.
 
@@ -97,6 +97,7 @@ twilio_auth_token: YOUR_TWILIO_AUTH_TOKEN
 public_base_url: https://assistant.example.com
 auth_mode: caller_whitelist_or_pin
 unknown_caller_policy: pin_fallback
+assistant_name: ""
 conversation_relay_tts_provider: ElevenLabs
 conversation_relay_voice: YOUR_TWILIO_CONVERSATION_RELAY_VOICE_ID
 conversation_relay_transcription_provider: Deepgram
@@ -109,6 +110,7 @@ Configuration notes:
 
 - `public_base_url` must be the public HTTPS base URL Twilio uses, without a trailing slash.
 - `auth_mode` and `unknown_caller_policy` are legacy options: `/incoming_call` no longer reads them. Caller identity is now always resolved via HA Extended User Management's `find_person_by_phone`, and an unrecognized number is always routed into the conversation agent's own spoken identity ladder rather than a DTMF prompt. These options are kept only so existing configs don't fail validation, and are candidates for removal in a future release.
+- `assistant_name` is the name spoken in the greeting to unrecognized callers ("Hello, this is <name>. To whom am I speaking?"). Leave blank for a generic greeting.
 - `conversation_relay_tts_provider` should be a Twilio-supported provider such as `ElevenLabs`.
 - `conversation_relay_voice` is provider/account specific. Do not assume a voice ID from another installation will work.
 - `allow_unsigned_twilio_requests_for_dev` must remain `false` for public or exposed endpoints.
@@ -170,6 +172,19 @@ There is no per-caller configuration left in this App's own web UI for this.
 5. Twilio should speak the response through Conversation Relay using the configured voice.
 6. To end the call, say `goodbye`, `hang up`, `end call`, `that's all`, or `I'm done`.
 7. Optionally, call again from an unregistered number: you should be asked "To whom am I speaking?", then asked to confirm your PIN by voice -- no keypad. Nothing else is answered until the PIN verifies.
+
+### 6. Optional: Publish Legal Pages For SMS Registration
+
+Twilio's A2P 10DLC and Toll-Free Verification reviews require live homepage, privacy, terms and opt-in consent URLs. The App serves them from your public base URL, but their content is yours, not the App's:
+
+| URL | File |
+| --- | --- |
+| `/` | `legal/index.html` |
+| `/legal/privacy` | `legal/privacy.html` |
+| `/legal/terms` | `legal/terms.html` |
+| `/legal/consent` | `legal/consent.html` |
+
+Put these files in a `legal/` folder inside this App's config directory (`/addon_configs/<id>_twilio_voice_assistant/` on the host, reachable through the Samba or SSH add-ons). Each file is served as-is. Any file that is missing is replaced by a neutral placeholder page.
 
 ## Reverse Proxy Guidance
 

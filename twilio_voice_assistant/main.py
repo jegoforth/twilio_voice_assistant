@@ -24,6 +24,10 @@ PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "").rstrip("/")
 if PUBLIC_BASE_URL and not PUBLIC_BASE_URL.startswith(("http://", "https://")):
     PUBLIC_BASE_URL = f"https://{PUBLIC_BASE_URL}"
 DEBUG = os.getenv("DEBUG", "false").lower() == "true"
+# Off by default: transcript text is real spoken conversation content, not
+# the metadata-only events log_timing() emits. It exists to be switched on
+# for a testing window so calls can be reviewed afterward, then back off.
+LOG_CALL_TRANSCRIPTS = os.getenv("LOG_CALL_TRANSCRIPTS", "false").lower() == "true"
 CONVERSATION_RELAY_TTS_PROVIDER = os.getenv(
     "CONVERSATION_RELAY_TTS_PROVIDER", "ElevenLabs"
 ).strip()
@@ -108,14 +112,18 @@ if missing_vars:
 # this is for a rolling performance review, not a permanent audit trail.
 TIMING_LOG_PATH = "/data/timing-log.jsonl"
 TIMING_LOG_MAX_BYTES = 10 * 1024 * 1024
+# Same rebuild-surviving volume and rotation as TIMING, for the same reason:
+# a transcript that only reached stdout would be gone after the next rebuild,
+# before anyone got around to reviewing the test call it came from.
+TRANSCRIPT_LOG_PATH = "/data/call-transcripts.jsonl"
+TRANSCRIPT_LOG_MAX_BYTES = 10 * 1024 * 1024
 
 
-def _append_timing_log(line: str) -> None:
+def _append_jsonl_log(path: str, max_bytes: int, line: str) -> None:
     try:
-        if (os.path.exists(TIMING_LOG_PATH)
-                and os.path.getsize(TIMING_LOG_PATH) > TIMING_LOG_MAX_BYTES):
-            os.replace(TIMING_LOG_PATH, TIMING_LOG_PATH + ".1")
-        with open(TIMING_LOG_PATH, "a", encoding="utf-8") as handle:
+        if os.path.exists(path) and os.path.getsize(path) > max_bytes:
+            os.replace(path, path + ".1")
+        with open(path, "a", encoding="utf-8") as handle:
             handle.write(line + "\n")
     except OSError:
         # Best-effort, same as the stdout print below -- a full disk or a
@@ -132,7 +140,24 @@ def log_timing(event: str, **fields):
     }
     line = json.dumps(payload, sort_keys=True)
     print("TIMING " + line)
-    _append_timing_log(line)
+    _append_jsonl_log(TIMING_LOG_PATH, TIMING_LOG_MAX_BYTES, line)
+
+
+def log_call_transcript(*, call_sid, user_id, conversation_id, speaker: str, text: str):
+    """Record one turn of a call's actual words, only while LOG_CALL_TRANSCRIPTS
+    is on -- unlike log_timing(), this is conversation content, not metadata."""
+    if not LOG_CALL_TRANSCRIPTS or not text:
+        return
+    line = json.dumps({
+        "ts": round(time.time(), 3),
+        "call_sid": call_sid,
+        "user_id": user_id,
+        "conversation_id": conversation_id,
+        "speaker": speaker,
+        "text": text,
+    }, sort_keys=True)
+    print("TRANSCRIPT " + line)
+    _append_jsonl_log(TRANSCRIPT_LOG_PATH, TRANSCRIPT_LOG_MAX_BYTES, line)
 
 
 def debug_log(event: str, **fields):
@@ -1256,6 +1281,7 @@ async def conversation_relay_websocket(websocket: WebSocket):
     user_id = "unknown"
     user_name = "unknown"
     conversation_id = None
+    call_sid = None
     session_valid = False
     ha_connection = HAConnection()
 
@@ -1295,12 +1321,13 @@ async def conversation_relay_websocket(websocket: WebSocket):
                     custom_parameters.get("conversation_id")
                     or f"twilio_{user_id}"
                 )
+                call_sid = session_payload.get("call_sid")
                 session_valid = True
                 log_timing(
                     "session_token_validation",
                     route="/conversation_relay",
                     result="valid",
-                    call_sid=session_payload.get("call_sid"),
+                    call_sid=call_sid,
                 )
                 debug_log(
                     "conversation_relay_setup",
@@ -1337,10 +1364,19 @@ async def conversation_relay_websocket(websocket: WebSocket):
                 if not transcript:
                     continue
 
+                log_call_transcript(
+                    call_sid=call_sid,
+                    user_id=user_id,
+                    conversation_id=conversation_id,
+                    speaker="caller",
+                    text=transcript,
+                )
+
                 if is_end_call_phrase(transcript):
+                    goodbye_text = "Understood. Goodbye."
                     await websocket.send_text(json.dumps({
                         "type": "text",
-                        "token": "Understood. Goodbye.",
+                        "token": goodbye_text,
                         "last": True,
                     }))
                     await websocket.send_text(json.dumps({
@@ -1348,6 +1384,13 @@ async def conversation_relay_websocket(websocket: WebSocket):
                         "handoffData": json.dumps({"reason": "caller_ended_call"}),
                     }))
                     log_timing("response_text_sent_to_conversation_relay", user_id=user_id)
+                    log_call_transcript(
+                        call_sid=call_sid,
+                        user_id=user_id,
+                        conversation_id=conversation_id,
+                        speaker="elspeth",
+                        text=goodbye_text,
+                    )
                     continue
 
                 try:
@@ -1380,6 +1423,13 @@ async def conversation_relay_websocket(websocket: WebSocket):
                     user_id=user_id,
                     conversation_id=conversation_id,
                     text_length=len(reply),
+                )
+                log_call_transcript(
+                    call_sid=call_sid,
+                    user_id=user_id,
+                    conversation_id=conversation_id,
+                    speaker="elspeth",
+                    text=reply,
                 )
                 continue
 

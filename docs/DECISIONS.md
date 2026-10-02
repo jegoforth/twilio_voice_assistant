@@ -342,9 +342,9 @@ The repository-installed App starts successfully. The admin UI was restored and 
 
 Caller Access validation: Caller Access web UI is working. Users were added through the web UI. A call from an allowed number skipped PIN and entered Conversation Relay as expected. A call from an unlisted number fell back to PIN as expected. Correct PIN was accepted and entered Conversation Relay as expected. Unified Caller Access is now the configuration path. Conversation Relay remains the preferred/default voice bridge.
 
-Conversation Relay mode was validated successfully. Conversation Relay uses ElevenLabs successfully with a configured Elspeth voice ID. Conversation Relay sends caller transcript text to Home Assistant Conversation, Home Assistant Conversation returns a response, and the assistant verified something in the house correctly. The call ended correctly through the end-call handling. Conversation Relay latency is much faster than the previous local audio prototype/TTS/audio-file path.
+Conversation Relay mode was validated successfully. Conversation Relay uses ElevenLabs successfully with a configured voice ID. Conversation Relay sends caller transcript text to Home Assistant Conversation, Home Assistant Conversation returns a response, and the assistant verified something in the house correctly. The call ended correctly through the end-call handling. Conversation Relay latency is much faster than the previous local audio prototype/TTS/audio-file path.
 
-Version `1.3.8` was validated as the stable unified-auth Conversation Relay baseline. Unified `callers` config works. Known caller phone numbers skip PIN and enter Conversation Relay. Unlisted callers fall back to PIN when configured. Wrong PIN is rejected, correct PIN is accepted, Conversation Relay remains the preferred/default voice bridge, and ElevenLabs Elspeth voice is working through Conversation Relay.
+Version `1.3.8` was validated as the stable unified-auth Conversation Relay baseline. Unified `callers` config works. Known caller phone numbers skip PIN and enter Conversation Relay. Unlisted callers fall back to PIN when configured. Wrong PIN is rejected, correct PIN is accepted, Conversation Relay remains the preferred/default voice bridge, and the configured ElevenLabs voice is working through Conversation Relay.
 
 Stable v2 baseline:
 
@@ -353,7 +353,7 @@ Stable v2 baseline:
 - Unknown caller PIN fallback works.
 - Wrong PIN rejection and correct PIN acceptance work.
 - Conversation Relay mode works end-to-end.
-- Conversation Relay uses ElevenLabs and a configured Elspeth voice ID.
+- Conversation Relay uses ElevenLabs and a configured voice ID.
 - Conversation Relay sends caller transcript text to Home Assistant Conversation and receives response text successfully.
 - The assistant can verify house state through Home Assistant.
 - End-call handling works.
@@ -484,7 +484,7 @@ The architecture file should remain readable, stable, and intentional. Codex nee
 
 Consequences:
 
-- ChatGPT/Eric own most updates to `docs/ARCHITECTURE.md`.
+- The maintainer owns most updates to `docs/ARCHITECTURE.md`.
 - Codex should read `docs/ARCHITECTURE.md` before implementation work.
 - Codex should record implementation notes, proposed decision changes, and open questions in `docs/DECISIONS.md` unless instructed otherwise.
 - Codex may use focused markdown files for testing and operational notes, such as `docs/TWILIO_DEVELOPMENT.md` or future test reports.

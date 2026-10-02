@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.11.0
+## 1.12.0
 
 - Operator-specific legal pages are no longer built into the add-on. `/`,
   `/legal/privacy`, `/legal/terms` and `/legal/consent` now serve
@@ -12,6 +12,17 @@
 - Added an `assistant_name` option for the spoken greeting to unrecognized
   callers ("Hello, this is <name>. To whom am I speaking?") and the
   unavailable message. Blank uses a generic greeting.
+
+## 1.11.0
+
+- Added a `log_call_transcripts` add-on option (default `false`). When
+  enabled, each turn of a call -- what the caller said and what the assistant
+  replied -- is printed to the App log prefixed `TRANSCRIPT` and appended
+  to `/data/call-transcripts.jsonl` (same rebuild-surviving volume and
+  10MB rotation as the 1.10.4 TIMING log), so a test call can be reviewed
+  afterward. Off by default because, unlike the metadata-only
+  `log_timing()` events, this records real spoken content; meant to be
+  switched on for a testing window and back off afterward.
 
 ## 1.10.5
 

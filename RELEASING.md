@@ -10,6 +10,10 @@ Every released add-on version must map to one immutable Git commit.
 6. Confirm the running add-on reports the expected version and its startup log reports the same source revision.
 7. Never reuse a version or move a published tag.
 
+## One-time exception: 2026 history rewrite
+
+When `1.12.0` was released, the repository history was rewritten to remove personal data (names, phone numbers, email addresses) from earlier commits. Every commit ID changed, and every existing tag from `v1.5.0` to `v1.11.0` was moved to the rewritten commit with the same content. Each tag still marks the same release source; only its SHA changed. SHAs recorded before the rewrite no longer resolve. This is the only time published tags have been moved.
+
 ## Historical version 1.4.6
 
 Version `1.4.6` appears in `config.json` from the repository's first commit and remains unchanged through current `main`. Production reports `1.4.6`, but no historical tag, source SHA, or build metadata proves which commit was deployed.

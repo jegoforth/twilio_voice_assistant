@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.12.0
+
+- Each call now gets its own Elspeth conversation. The conversation id
+  was `twilio_<user_id>`, so every call from the same person continued
+  one history; on 2026-10-17 the previous day's "unlock the front door
+  deadbolt" shaped how "is the house secure?" was understood. It is now
+  `twilio_<user_id>_<CallSid>`.
+- A caller's sentence that speech-to-text splits into two final
+  transcripts is joined back together. A final of three words or fewer
+  that arrives within 2 seconds of the previous one (or was already
+  queued while Elspeth answered it) is appended to that turn and the
+  whole sentence is sent again, instead of the stray tail ("Door.")
+  going to Elspeth as its own request. Logged as `split_transcript_merged`
+  (length only, no text).
+
 ## 1.11.0
 
 - Added a `log_call_transcripts` add-on option (default `false`). When

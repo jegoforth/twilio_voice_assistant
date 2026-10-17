@@ -769,6 +769,7 @@ def conversation_relay_twiml(
     user_id: str,
     user_name: str,
     session_token: str,
+    call_sid: str | None = None,
 ) -> str:
     # Preferred v2 path: text-only bridge with Twilio Conversation Relay.
     websocket_url = public_websocket_url("/conversation_relay")
@@ -809,7 +810,7 @@ def conversation_relay_twiml(
         for name, value in attrs.items()
         if value
     )
-    conversation_id = f"twilio_{user_id}"
+    conversation_id = call_conversation_id(user_id, call_sid)
 
     return f"""
     <Response>
@@ -823,6 +824,52 @@ def conversation_relay_twiml(
         </Connect>
     </Response>
     """
+
+
+# Deepgram sometimes ends a caller's turn mid-sentence and sends the rest as
+# a second final transcript. On 2026-10-17 "Check the main garage door and
+# the 3rd garage door." arrived as "...the 3rd garage." and then "Door." 1.4s
+# later, and the stray "Door." went to Core as its own request. A short
+# final that lands this soon after the previous one can't be a reply to
+# what Elspeth said (she has barely started speaking), so it's joined back
+# onto the turn it was cut from and that whole sentence is sent again.
+SPLIT_TURN_WINDOW_SECONDS = 2.0
+# A fragment that was already waiting while Core answered the previous turn
+# is read the moment that answer goes out; this catches it even when Core
+# took longer than the window above.
+SPLIT_TURN_QUEUED_SECONDS = 0.25
+SPLIT_TURN_MAX_WORDS = 3
+
+
+def merge_split_turn(
+    previous_text: str | None,
+    previous_final_at: float | None,
+    previous_reply_at: float | None,
+    text: str,
+    now: float,
+) -> str | None:
+    """Return the rejoined sentence when `text` is the tail of the previous
+    turn, otherwise None. Longer follow-ons are left alone: "Turn on the
+    light. Turn off the fan." split in two is two real commands."""
+    if not previous_text or previous_final_at is None:
+        return None
+    if len(text.split()) > SPLIT_TURN_MAX_WORDS:
+        return None
+    soon_after_final = now - previous_final_at <= SPLIT_TURN_WINDOW_SECONDS
+    queued_during_reply = (previous_reply_at is not None
+                           and now - previous_reply_at <= SPLIT_TURN_QUEUED_SECONDS)
+    if not (soon_after_final or queued_during_reply):
+        return None
+    return f"{previous_text.rstrip().rstrip('.?!')} {text}"
+
+
+def call_conversation_id(user_id: str, call_sid: str | None) -> str:
+    """One Core conversation per call. Keyed on the caller alone, every call
+    from the same person shared one history: on 2026-10-17 the previous
+    day's "unlock the front door deadbolt" steered how "is the house
+    secure?" was understood. The call SID keeps it per call; the caller
+    prefix keeps it readable in logs."""
+    return f"twilio_{user_id}_{call_sid}" if call_sid else f"twilio_{user_id}"
 
 
 def normalize_command(text: str) -> str:
@@ -1255,7 +1302,7 @@ async def start_session(
             conversation_relay_voice_configured=bool(CONVERSATION_RELAY_VOICE),
         )
         return twiml_response(
-            conversation_relay_twiml(user_id, user_name, session_token)
+            conversation_relay_twiml(user_id, user_name, session_token, call_sid)
         )
 
     except HTTPException:
@@ -1284,6 +1331,9 @@ async def conversation_relay_websocket(websocket: WebSocket):
     call_sid = None
     session_valid = False
     ha_connection = HAConnection()
+    previous_turn_text = None
+    previous_final_at = None
+    previous_reply_at = None
 
     try:
         while True:
@@ -1317,11 +1367,11 @@ async def conversation_relay_websocket(websocket: WebSocket):
 
                 user_id = session_payload["user_id"]
                 user_name = session_payload["user_name"]
+                call_sid = session_payload.get("call_sid")
                 conversation_id = (
                     custom_parameters.get("conversation_id")
-                    or f"twilio_{user_id}"
+                    or call_conversation_id(user_id, call_sid)
                 )
-                call_sid = session_payload.get("call_sid")
                 session_valid = True
                 log_timing(
                     "session_token_validation",
@@ -1393,16 +1443,29 @@ async def conversation_relay_websocket(websocket: WebSocket):
                     )
                     continue
 
+                now = time.monotonic()
+                turn_text = merge_split_turn(
+                    previous_turn_text, previous_final_at, previous_reply_at, transcript, now,
+                ) or transcript
+                if turn_text != transcript:
+                    log_timing(
+                        "split_transcript_merged",
+                        user_id=user_id,
+                        conversation_id=conversation_id,
+                        text_length=len(turn_text),
+                    )
+                previous_turn_text, previous_final_at = turn_text, now
+
                 try:
                     if CONVERSATION_AGENT_ID:
                         reply = await send_to_home_assistant_conversation(
-                            transcript,
+                            turn_text,
                             user_id,
                             conversation_id,
                         )
                     else:
                         reply = await send_to_elspeth_twilio_conversation(
-                            transcript,
+                            turn_text,
                             user_id,
                             conversation_id,
                             ha_connection,
@@ -1418,6 +1481,7 @@ async def conversation_relay_websocket(websocket: WebSocket):
                     "last": True,
                     "lang": CONVERSATION_RELAY_LANGUAGE,
                 }))
+                previous_reply_at = time.monotonic()
                 log_timing(
                     "response_text_sent_to_conversation_relay",
                     user_id=user_id,

@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.13.0
+
+- Calls Elspeth places herself: new `/errand/answer`, `/errand/status` and
+  `/errand_relay` routes serve a call Elspeth Core started ("call Shelley and
+  ask her ..."). Each step goes to Core through the new
+  `elspeth_local.twilio_errand` service (elspeth_local 0.6.0), which answers
+  with her next line. The person who answers gets no identity and no access
+  to anything else; a voicemail gets the message once with `<Say>`. A silent
+  line is closed after 60 seconds.
+- Calls from a household speaker's SIP phone: new `/sip/outbound` route, the
+  voice URL for a Twilio SIP domain a TECHO5 Echo Dot signs in to. It only
+  connects to numbers registered to a household member, with the new
+  `outbound_caller_id` option as caller ID, and rejects everything else.
+- The Conversation Relay attributes are now built in one place for calls in
+  both directions.
+- Numbered 1.13.0 because the unmerged 1.12.0 release PR (#4) already claims
+  1.12.0.
+
 ## 1.11.0
 
 - Added a `log_call_transcripts` add-on option (default `false`). When

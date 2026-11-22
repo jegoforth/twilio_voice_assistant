@@ -104,6 +104,7 @@ conversation_relay_language: en-US
 allow_unsigned_twilio_requests_for_dev: false
 debug: false
 log_call_transcripts: false
+outbound_caller_id: "+15555550123"
 ```
 
 Configuration notes:
@@ -114,6 +115,8 @@ Configuration notes:
 - `conversation_relay_voice` is provider/account specific. Do not assume a voice ID from another installation will work.
 - `allow_unsigned_twilio_requests_for_dev` must remain `false` for public or exposed endpoints.
 - `log_call_transcripts` records each turn of a call (what the caller said and what Elspeth replied) so a test call can be reviewed afterward. Turns go to the App log prefixed `TRANSCRIPT` and to `/data/call-transcripts.jsonl`, which survives App rebuilds and rotates at 10MB. It's `false` by default because it records real spoken content, not just metadata: turn it on while you're testing and back off once you're done.
+
+- `outbound_caller_id` is the assistant's own Twilio number in E.164 form. It is only used for calls a household speaker places through your SIP domain (see "Calls from a household speaker" below); leave it empty and those calls are refused.
 
 Start the App after saving the configuration.
 
@@ -127,7 +130,13 @@ Your public HTTPS proxy or tunnel should forward only these paths to the App on 
 /start_session
 /conversation_relay
 /conversation_relay/status
+/errand/answer
+/errand/status
+/errand_relay
+/sip/outbound
 ```
+
+The last four are only needed for calls the assistant places (below).
 
 Do not expose these paths publicly:
 
@@ -289,3 +298,19 @@ Treat this App as an internet-facing webhook service.
 ## Project History
 
 This repository is being prepared for first public beta use from the current Conversation Relay and Caller Access design. See [CHANGELOG.md](CHANGELOG.md) and [docs/DECISIONS.md](docs/DECISIONS.md) for release notes and implementation decisions.
+
+
+## Calls the assistant places
+
+Elspeth Core can phone a household member on someone's behalf ("call Shelley and ask her what she'd like for dinner"). Core starts the call through Twilio with this App's `/errand/answer` and `/errand/status` as its webhooks. This App serves the call with Conversation Relay over `/errand_relay`, and sends each step to Core through `elspeth_local.twilio_errand` (elspeth_local 0.6.0 or later). Core answers with the next line of a short fixed script: ask, take the answer, offer to carry anything back, and say goodbye. Whoever answers is never treated as a household member and can't ask for anything else. A voicemail gets the message read once with `<Say>`. Nothing needs configuring here beyond exposing the routes; Core holds the setting for this App's public address.
+
+## Calls from a household speaker
+
+A speaker with its own SIP phone (an Echo Dot running TECHO5 firmware) can place calls through a Twilio SIP domain on this account:
+
+1. In Twilio, create a SIP domain with SIP registration on, a credential list holding one username and a long random password per speaker, and secure media (SRTP) on.
+2. Set the domain's voice URL to `<public_base_url>/sip/outbound` (HTTP POST).
+3. Set `outbound_caller_id` here to the assistant's number.
+4. Sign the speaker in from Home Assistant with its `phone_account` action: the server is the SIP domain (`<name>.sip.twilio.com`), with that username and password.
+
+`/sip/outbound` only connects calls to numbers registered to someone in Home Assistant Extended User Management, the same records caller ID uses, and shows the assistant's number as caller ID. Anything else is told it can only call the household.

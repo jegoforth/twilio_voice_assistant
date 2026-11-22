@@ -65,6 +65,17 @@ ALLOW_UNSIGNED_TWILIO_REQUESTS_FOR_DEV = (
     in {"1", "true", "yes", "on"}
 )
 SESSION_TOKEN_TTL_SECONDS = 120
+# Elspeth's own number (E.164), shown as caller ID when a household speaker
+# with a SIP phone (a TECHO5 Echo Dot) places a call through this account's
+# SIP domain. Unset, such calls are refused.
+OUTBOUND_CALLER_ID = os.getenv("OUTBOUND_CALLER_ID", "").strip()
+if OUTBOUND_CALLER_ID and not re.fullmatch(r"\+[1-9]\d{7,14}", OUTBOUND_CALLER_ID):
+    print("WARNING: outbound_caller_id is not an E.164 number; speaker calls are disabled")
+    OUTBOUND_CALLER_ID = ""
+# A call Elspeth placed waits this long for the person to say something
+# before she says goodbye, so a silent line doesn't stay open.
+ERRAND_IDLE_SECONDS = 60
+ERRAND_ID_PATTERN = re.compile(r"[a-f0-9]{32}")
 
 # Placeholder ha_user_id for an unrecognized caller. Deliberately never a
 # real HA user UUID, so identity_assertion.py's signer finds no mapping for
@@ -765,23 +776,9 @@ def redirect_to_start_session(
     """)
 
 
-def conversation_relay_twiml(
-    user_id: str,
-    user_name: str,
-    session_token: str,
-) -> str:
-    # Preferred v2 path: text-only bridge with Twilio Conversation Relay.
-    websocket_url = public_websocket_url("/conversation_relay")
-    # An unrecognized caller gets no name-based greeting at all -- user_name
-    # is only ever the literal placeholder "unknown" for this case, and
-    # asking "what would you like to do?" skips straight past the identity
-    # ladder Core is about to run. Open with the ladder's own first rung
-    # instead, matching the spoken flow exactly.
-    welcome_greeting = (
-        "Hello, this is Elspeth. To whom am I speaking?"
-        if user_id == UNKNOWN_CALLER_HA_USER_ID
-        else f"Hello {user_name}. What would you like to do?"
-    )
+def relay_attributes(websocket_url: str, welcome_greeting: str) -> str:
+    """ConversationRelay's attributes, shared by calls Elspeth answers and
+    calls she places, so both sound and listen the same way."""
     attrs = {
         "url": websocket_url,
         "welcomeGreeting": welcome_greeting,
@@ -809,6 +806,27 @@ def conversation_relay_twiml(
         for name, value in attrs.items()
         if value
     )
+    return attr_text
+
+
+def conversation_relay_twiml(
+    user_id: str,
+    user_name: str,
+    session_token: str,
+) -> str:
+    # Preferred v2 path: text-only bridge with Twilio Conversation Relay.
+    websocket_url = public_websocket_url("/conversation_relay")
+    # An unrecognized caller gets no name-based greeting at all -- user_name
+    # is only ever the literal placeholder "unknown" for this case, and
+    # asking "what would you like to do?" skips straight past the identity
+    # ladder Core is about to run. Open with the ladder's own first rung
+    # instead, matching the spoken flow exactly.
+    welcome_greeting = (
+        "Hello, this is Elspeth. To whom am I speaking?"
+        if user_id == UNKNOWN_CALLER_HA_USER_ID
+        else f"Hello {user_name}. What would you like to do?"
+    )
+    attr_text = relay_attributes(websocket_url, welcome_greeting)
     conversation_id = f"twilio_{user_id}"
 
     return f"""
@@ -1477,6 +1495,251 @@ async def conversation_relay_status(
     return twiml_response("""
     <Response>
         <Hangup/>
+    </Response>
+    """)
+
+
+# --- Calls Elspeth places herself ------------------------------------------
+#
+# "Call Shelley and ask her what she'd like for dinner": Elspeth Core starts
+# the call through Twilio's REST API with this add-on's /errand/answer as the
+# answer URL and /errand/status as the status callback, each carrying the
+# errand id Core minted. This add-on serves the call and reports each step to
+# Core through elspeth_local.twilio_errand, which answers with her next line.
+# Whoever picks up is never given an identity: Core runs a fixed script for
+# that errand and nothing they say reaches anything else.
+
+
+def create_errand_token(errand_id: str, call_sid: str | None) -> str:
+    payload = {"kind": "errand", "errand_id": errand_id, "created": int(time.time())}
+    if call_sid:
+        payload["call_sid"] = call_sid
+    encoded = base64url_encode(json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8"))
+    signature = hmac.new(TWILIO_AUTH_TOKEN.encode("utf-8"), encoded.encode("ascii"), hashlib.sha256).digest()
+    return f"{encoded}.{base64url_encode(signature)}"
+
+
+def validate_errand_token(token: str | None) -> dict | None:
+    if not token or "." not in token:
+        return None
+    encoded, encoded_signature = token.split(".", 1)
+    expected = hmac.new(TWILIO_AUTH_TOKEN.encode("utf-8"), encoded.encode("ascii"), hashlib.sha256).digest()
+    try:
+        if not hmac.compare_digest(base64url_decode(encoded_signature), expected):
+            return None
+        payload = json.loads(base64url_decode(encoded).decode("utf-8"))
+    except Exception:
+        return None
+    # "kind" keeps a caller's session token from ever passing as an errand's.
+    if not isinstance(payload, dict) or payload.get("kind") != "errand":
+        return None
+    created = payload.get("created")
+    if not isinstance(created, int) or time.time() - created > SESSION_TOKEN_TTL_SECONDS:
+        return None
+    if not isinstance(payload.get("errand_id"), str) or not ERRAND_ID_PATTERN.fullmatch(payload["errand_id"]):
+        return None
+    return payload
+
+
+async def elspeth_errand_event(errand_id: str, event: str, detail: str, ha_connection=None) -> dict:
+    message = {
+        "type": "call_service",
+        "domain": "elspeth_local",
+        "service": "twilio_errand",
+        "service_data": {"errand_id": errand_id, "event": event, "detail": detail},
+        "return_response": True,
+    }
+    if ha_connection is not None:
+        result, error = await ha_connection.request(message)
+    else:
+        result, error = await ha_websocket_request(message)
+    if error:
+        raise RuntimeError(f"Elspeth Core errand request failed: {error}")
+    return (result or {}).get("response") or {}
+
+
+def _errand_id(value: str | None) -> str:
+    if not value or not ERRAND_ID_PATTERN.fullmatch(value):
+        raise HTTPException(status_code=400, detail="Invalid errand")
+    return value
+
+
+@app.post("/errand/answer")
+async def errand_answer(
+    request: Request,
+    errand: str | None = None,
+    CallSid: str | None = Form(None),
+    AnsweredBy: str | None = Form(None),
+):
+    await validate_twilio_http_request(request, route="/errand/answer", call_sid=CallSid)
+    errand_id = _errand_id(errand)
+    answered_by = (AnsweredBy or "unknown").strip().lower()[:32] or "unknown"
+    log_timing("errand_call_answered", call_sid=CallSid, answered_by=answered_by)
+    try:
+        result = await elspeth_errand_event(errand_id, "answered", answered_by)
+    except Exception:
+        print("Errand answer: Elspeth Core request failed.")
+        traceback.print_exc()
+        return twiml_response("<Response><Hangup/></Response>")
+    action = result.get("action")
+    if action == "voicemail" and isinstance(result.get("say"), str):
+        return twiml_response(f"""
+        <Response>
+            <Pause length="1"/>
+            <Say voice="Polly.Joanna-Neural">{escape(result["say"])}</Say>
+            <Hangup/>
+        </Response>
+        """)
+    if action != "converse" or not isinstance(result.get("greeting"), str):
+        return twiml_response("<Response><Hangup/></Response>")
+    attr_text = relay_attributes(public_websocket_url("/errand_relay"), result["greeting"])
+    token = create_errand_token(errand_id, CallSid)
+    return twiml_response(f"""
+    <Response>
+        <Connect action="/conversation_relay/status">
+            <ConversationRelay {attr_text}>
+                <Parameter name="errand_token" value="{escape(token, quote=True)}"/>
+            </ConversationRelay>
+        </Connect>
+    </Response>
+    """)
+
+
+@app.post("/errand/status")
+async def errand_status(
+    request: Request,
+    errand: str | None = None,
+    CallSid: str | None = Form(None),
+    CallStatus: str | None = Form(None),
+):
+    await validate_twilio_http_request(request, route="/errand/status", call_sid=CallSid)
+    errand_id = _errand_id(errand)
+    status = (CallStatus or "unknown").strip().lower()[:32] or "unknown"
+    log_timing("errand_call_ended", call_sid=CallSid, call_status=status)
+    try:
+        await elspeth_errand_event(errand_id, "ended", status)
+    except Exception:
+        print("Errand status: Elspeth Core request failed.")
+        traceback.print_exc()
+    return Response(status_code=204)
+
+
+@app.websocket("/errand_relay")
+async def errand_relay_websocket(websocket: WebSocket):
+    await websocket.accept()
+    errand_id = None
+    call_sid = None
+    ha_connection = HAConnection()
+
+    async def say(text: str, end: bool) -> None:
+        await websocket.send_text(json.dumps({
+            "type": "text", "token": text, "last": True, "lang": CONVERSATION_RELAY_LANGUAGE,
+        }))
+        log_call_transcript(call_sid=call_sid, user_id="errand", conversation_id=errand_id,
+                            speaker="elspeth", text=text)
+        if end:
+            await websocket.send_text(json.dumps({
+                "type": "end", "handoffData": json.dumps({"reason": "errand_finished"}),
+            }))
+
+    try:
+        while True:
+            try:
+                raw_message = await asyncio.wait_for(
+                    websocket.receive_text(), timeout=ERRAND_IDLE_SECONDS if errand_id else 15
+                )
+            except asyncio.TimeoutError:
+                if errand_id:
+                    log_timing("errand_call_idle", call_sid=call_sid)
+                    await say("I didn't catch anything, so I'll let you go. Bye!", end=True)
+                    continue
+                await websocket.close(code=1008)
+                return
+            try:
+                message = json.loads(raw_message)
+            except json.JSONDecodeError:
+                continue
+            message_type = message.get("type", "unknown")
+
+            if message_type == "setup":
+                payload = validate_errand_token((message.get("customParameters") or {}).get("errand_token"))
+                if payload is None:
+                    log_timing("errand_token_validation", result="invalid")
+                    await websocket.close(code=1008)
+                    return
+                errand_id = payload["errand_id"]
+                call_sid = payload.get("call_sid")
+                continue
+
+            if message_type == "prompt":
+                if errand_id is None:
+                    await websocket.close(code=1008)
+                    return
+                transcript = (message.get("voicePrompt") or "").strip()
+                if not message.get("last") or not transcript:
+                    continue
+                log_call_transcript(call_sid=call_sid, user_id="errand", conversation_id=errand_id,
+                                    speaker="callee", text=transcript)
+                try:
+                    result = await elspeth_errand_event(errand_id, "turn", transcript[:2000], ha_connection)
+                    reply, end = result["reply"], result["end"]
+                    if not isinstance(reply, str) or not reply or not isinstance(end, bool):
+                        raise ValueError("errand reply is invalid")
+                except Exception:
+                    print("Errand turn: Elspeth Core request failed.")
+                    traceback.print_exc()
+                    reply, end = "Sorry, I'm having trouble on my end. I'll try again later. Bye!", True
+                await say(reply, end)
+                continue
+
+    except WebSocketDisconnect:
+        log_timing("errand_relay_closed", call_sid=call_sid, reason="websocket_disconnect")
+    except Exception:
+        print("Exception in errand relay websocket:")
+        traceback.print_exc()
+    finally:
+        await ha_connection.close()
+
+
+# --- Calls from a household speaker's SIP phone ------------------------------
+#
+# A TECHO5 Echo Dot signs in to this Twilio account's SIP domain as a phone.
+# When it dials, Twilio asks this URL (the SIP domain's voice URL) what to do.
+# It only ever connects to a number registered to someone in the household
+# (HA Extended User Management, the same records caller ID uses), shown with
+# Elspeth's own number, so a stolen SIP password can't run up calls to
+# anywhere else.
+
+SIP_USER = re.compile(r"^sips?:([^@;>]+)@", re.I)
+
+
+@app.post("/sip/outbound")
+async def sip_outbound(
+    request: Request,
+    To: str | None = Form(None),
+    From: str | None = Form(None),
+    CallSid: str | None = Form(None),
+):
+    await validate_twilio_http_request(request, route="/sip/outbound", call_sid=CallSid)
+    match = SIP_USER.match(To or "")
+    if not OUTBOUND_CALLER_ID or not match or not (From or "").lower().startswith(("sip:", "sips:")):
+        log_timing("sip_call_refused", call_sid=CallSid, reason="not_configured_or_not_sip")
+        return twiml_response("<Response><Reject/></Response>")
+    person_entity_id, number = await find_person_entity_by_phone(match.group(1))
+    if not person_entity_id or not number or not re.fullmatch(r"\+[1-9]\d{7,14}", number):
+        log_timing("sip_call_refused", call_sid=CallSid, reason="not_household", callee=mask_phone_number(number))
+        return twiml_response("""
+        <Response>
+            <Say>Sorry, I can only call people in the household.</Say>
+            <Hangup/>
+        </Response>
+        """)
+    log_timing("sip_call_connecting", call_sid=CallSid, callee=mask_phone_number(number))
+    return twiml_response(f"""
+    <Response>
+        <Dial callerId="{escape(OUTBOUND_CALLER_ID, quote=True)}" answerOnBridge="true" timeout="30">
+            <Number>{escape(number)}</Number>
+        </Dial>
     </Response>
     """)
 

@@ -60,6 +60,8 @@ os.environ['LOG_CALL_TRANSCRIPTS'] = str(
     config.get('log_call_transcripts', False)
 ).lower()
 
+os.environ['OUTBOUND_CALLER_ID'] = str(config.get('outbound_caller_id', '') or '').strip()
+
 port = config.get('port', 8000)
 
 # Start uvicorn

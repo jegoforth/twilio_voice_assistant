@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.15.0
+
+- The Claude line can send to several Claude projects. New
+  `claude_projects` option: a list of `name`, `fire_url` and `fire_token`,
+  one per project's scheduled task. `claude_default_project` names the one
+  used when the caller doesn't say. Claude reads back the request and the
+  project before sending, and one call can send to several projects.
+- The older single `claude_project_fire_url` / `claude_project_fire_token`
+  pair still works, as a project named by `claude_default_project` (or
+  "main").
+
 ## 1.14.0
 
 - The Claude line: an optional second Twilio number that connects a

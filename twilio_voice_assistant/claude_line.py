@@ -14,9 +14,9 @@ talking over Claude, the reply in flight is cancelled at once.
 
 Claude has three tools on the call:
 
-- send_to_project: hands a request to Eric's Claude project by firing a
-  Claude Code scheduled task (API trigger). The project's coordinator picks
-  it up and starts threads.
+- send_to_project: hands a request to one of the caller's Claude projects
+  by firing that project's Claude Code scheduled task (API trigger), which
+  starts the work there. Several projects can be configured, with a default.
 - get_project_status: reads back the latest status digest the project
   posted to /claude/project_status.
 - end_call: hangs up after Claude says goodbye.
@@ -73,8 +73,54 @@ CLAUDE_ALLOWED_USER_IDS = {
 CLAUDE_RESUME_MINUTES = 20
 CLAUDE_MAX_HISTORY_MESSAGES = 120
 
-PROJECT_FIRE_URL = os.getenv("CLAUDE_PROJECT_FIRE_URL", "").strip()
-PROJECT_FIRE_TOKEN = os.getenv("CLAUDE_PROJECT_FIRE_TOKEN", "").strip()
+
+
+@dataclass
+class Project:
+    name: str
+    fire_url: str
+    fire_token: str
+
+
+def load_projects() -> tuple[dict[str, Project], str | None]:
+    """The Claude projects this line can send to, keyed by lowercase name,
+    and the default project's key.
+
+    Each comes from the claude_projects option (name, fire_url, fire_token:
+    one scheduled task with an API trigger per project). The older single
+    claude_project_fire_url/token pair still works, as a project named by
+    claude_default_project (or "main")."""
+    projects: dict[str, Project] = {}
+    try:
+        configured = json.loads(os.getenv("CLAUDE_PROJECTS", "") or "[]")
+    except json.JSONDecodeError:
+        print("WARNING: claude_projects is not valid; ignoring it")
+        configured = []
+    for entry in configured if isinstance(configured, list) else []:
+        if not isinstance(entry, dict):
+            continue
+        name = str(entry.get("name", "")).strip()
+        url = str(entry.get("fire_url", "")).strip()
+        token = str(entry.get("fire_token", "")).strip()
+        if name and url and token:
+            projects[name.lower()] = Project(name, url, token)
+        else:
+            print(f"WARNING: claude_projects entry {name or '(unnamed)'} is missing a field; skipped")
+
+    default_name = os.getenv("CLAUDE_DEFAULT_PROJECT", "").strip()
+    legacy_url = os.getenv("CLAUDE_PROJECT_FIRE_URL", "").strip()
+    legacy_token = os.getenv("CLAUDE_PROJECT_FIRE_TOKEN", "").strip()
+    if legacy_url and legacy_token:
+        legacy_name = default_name or "main"
+        projects.setdefault(legacy_name.lower(), Project(legacy_name, legacy_url, legacy_token))
+
+    default_key = default_name.lower() if default_name.lower() in projects else None
+    if default_key is None and len(projects) == 1:
+        default_key = next(iter(projects))
+    return projects, default_key
+
+
+PROJECTS, DEFAULT_PROJECT = load_projects()
 PROJECT_STATUS_SECRET = os.getenv("CLAUDE_PROJECT_STATUS_SECRET", "").strip()
 PROJECT_STATUS_PATH = "/data/claude-project-status.json"
 PROJECT_STATUS_MAX_CHARS = 4000
@@ -204,12 +250,21 @@ def conversation_for(user_id: str) -> tuple[Conversation, bool]:
 
 def system_prompt(user_name: str) -> str:
     today = time.strftime("%A, %B %-d, %Y")
-    project_line = (
-        "You can hand work to Eric's Claude project with send_to_project, and read back "
-        "what it last reported with get_project_status."
-        if PROJECT_FIRE_URL and PROJECT_FIRE_TOKEN
-        else "The project tools are not set up yet; if asked, say so briefly."
-    )
+    if PROJECTS:
+        names = ", ".join(project.name for project in PROJECTS.values())
+        default = (
+            f" If {user_name} doesn't name one, use {PROJECTS[DEFAULT_PROJECT].name}."
+            if DEFAULT_PROJECT
+            else f" If {user_name} doesn't name one, ask which."
+        )
+        project_line = (
+            f"You can hand work to {user_name}'s Claude projects with send_to_project. "
+            f"The projects are: {names}.{default} Match a spoken name to the closest "
+            f"project. You can read back what the projects last reported with "
+            f"get_project_status."
+        )
+    else:
+        project_line = "The project tools are not set up yet; if asked, say so briefly."
     return f"""You are Claude, talking with {user_name} on a phone call. Today is {today}.
 {user_name} is usually driving, so this is a hands-free voice conversation.
 
@@ -223,26 +278,32 @@ How to talk:
 
 Tools:
 - {project_line}
-- Before sending anything to the project, say back the request in one sentence and wait for a yes. Then send it, and confirm in a few words.
+- Before sending anything to a project, say back the request and which project it goes to in one sentence, and wait for a yes. Then send it, and confirm in a few words. Several requests to different projects in one call are fine; confirm each one.
 - Before a tool call, say a few words first, like "Let me check." so there is no dead air.
 - When {user_name} is done, say a short goodbye and call end_call."""
 
 
 def tool_definitions() -> list[dict]:
     tools: list[dict] = []
-    if PROJECT_FIRE_URL and PROJECT_FIRE_TOKEN:
+    if PROJECTS:
         tools.append({
             "name": "send_to_project",
             "description": (
-                "Send a request to Eric's Claude project, where a coordinator starts "
-                "the work in its own thread. Use it for anything that should happen "
+                "Send a request to one of the caller's Claude projects, where it is "
+                "started in its own thread. Use it for anything that should happen "
                 "after the call: research, writing, code changes, reminders to follow up. "
-                "Only call it after the caller has confirmed the request out loud."
+                "Only call it after the caller has confirmed the request and the project "
+                "out loud."
             ),
             "eager_input_streaming": True,
             "input_schema": {
                 "type": "object",
                 "properties": {
+                    "project": {
+                        "type": "string",
+                        "enum": [project.name for project in PROJECTS.values()],
+                        "description": "Which project gets the request.",
+                    },
                     "request": {
                         "type": "string",
                         "description": (
@@ -251,7 +312,7 @@ def tool_definitions() -> list[dict]:
                         ),
                     },
                 },
-                "required": ["request"],
+                "required": ["project", "request"],
                 "additionalProperties": False,
             },
         })
@@ -277,7 +338,7 @@ def tool_definitions() -> list[dict]:
 
 # --- Tools --------------------------------------------------------------------
 
-async def send_to_project(request_text: str, user_name: str) -> str:
+async def send_to_project(project: Project, request_text: str, user_name: str) -> str:
     stamp = time.strftime("%Y-%m-%d %H:%M %Z")
     text = (
         f"Voice request from {user_name}, spoken on the Claude phone line at {stamp}. "
@@ -286,19 +347,30 @@ async def send_to_project(request_text: str, user_name: str) -> str:
     )
     async with httpx.AsyncClient(timeout=10) as http:
         response = await http.post(
-            PROJECT_FIRE_URL,
+            project.fire_url,
             headers={
-                "Authorization": f"Bearer {PROJECT_FIRE_TOKEN}",
+                "Authorization": f"Bearer {project.fire_token}",
                 "anthropic-beta": ROUTINE_BETA,
                 "anthropic-version": "2023-06-01",
                 "Content-Type": "application/json",
             },
             json={"text": text},
         )
-    core.log_timing("claude_project_fire", status_code=response.status_code)
+    core.log_timing("claude_project_fire", project=project.name, status_code=response.status_code)
     if response.status_code >= 300:
-        return f"Sending failed with HTTP {response.status_code}. Tell the caller it didn't go through."
-    return "Sent. The project has it and will start on it."
+        return (
+            f"Sending to {project.name} failed with HTTP {response.status_code}. "
+            "Tell the caller it didn't go through."
+        )
+    return f"Sent. {project.name} has it and will start on it."
+
+
+def resolve_project(name) -> Project | None:
+    if isinstance(name, str) and name.strip().lower() in PROJECTS:
+        return PROJECTS[name.strip().lower()]
+    if not name and DEFAULT_PROJECT:
+        return PROJECTS[DEFAULT_PROJECT]
+    return None
 
 
 def read_project_status() -> str:
@@ -321,8 +393,12 @@ async def run_tool(name: str, tool_input, user_name: str) -> tuple[str, bool]:
         request_text = tool_input.get("request")
         if not isinstance(request_text, str) or not request_text.strip():
             return "Invalid tool input: request must be a non-empty string.", True
+        project = resolve_project(tool_input.get("project"))
+        if project is None:
+            names = ", ".join(p.name for p in PROJECTS.values())
+            return f"Unknown project. Ask the caller which one: {names}.", True
         try:
-            return await send_to_project(request_text.strip(), user_name), False
+            return await send_to_project(project, request_text.strip(), user_name), False
         except Exception as exc:
             return f"Sending failed ({type(exc).__name__}). Tell the caller it didn't go through.", True
     if name == "get_project_status":

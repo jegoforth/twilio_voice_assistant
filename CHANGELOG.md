@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.15.1
+
+- On startup the app log shows the Claude line's model, effort, PIN
+  setting, project names and default project (never URLs or tokens).
+- Log lines now appear right away instead of in delayed batches.
+
 ## 1.15.0
 
 - The Claude line can send to several Claude projects. New

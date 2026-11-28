@@ -13,6 +13,10 @@ RUN apt-get update && apt-get install -y \
     build-essential \
     && apt-get clean
 
+# Unbuffered, so TIMING and TRANSCRIPT lines reach the App log as they
+# happen instead of in bursts at the next request.
+ENV PYTHONUNBUFFERED=1
+
 WORKDIR /app
 
 RUN python3 -m venv /app/venv

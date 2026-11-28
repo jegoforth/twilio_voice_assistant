@@ -146,6 +146,20 @@ SPOKEN_DIGITS = {
 # is left to Claude, since it may mean "don't send that").
 HANGUP_PHRASES = {"goodbye", "good bye", "bye", "bye bye", "hang up", "end call", "end the call"}
 
+if CLAUDE_LINE_ENABLED:
+    # Names only: never the fire URLs or tokens.
+    print(
+        "Claude line: model=%s effort=%s pin=%s projects=[%s] default=%s"
+        % (
+            CLAUDE_MODEL,
+            CLAUDE_EFFORT,
+            CLAUDE_REQUIRE_PIN,
+            ", ".join(p.name for p in PROJECTS.values()),
+            PROJECTS[DEFAULT_PROJECT].name if DEFAULT_PROJECT else "none",
+        ),
+        flush=True,
+    )
+
 _client: anthropic.AsyncAnthropic | None = None
 
 

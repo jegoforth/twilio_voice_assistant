@@ -1,6 +1,6 @@
 {
   "name": "Twilio Voice Assistant",
-  "version": "1.14.0",
+  "version": "1.15.0",
   "slug": "twilio_voice_assistant",
   "description": "Twilio Conversation Relay app with caller identity via HA Extended User Management, spoken self-declaration and PIN verification for unrecognized callers (the same identity ladder as every other Elspeth voice channel), ElevenLabs voice support, and an optional conversation_agent_id for routing calls to a different HA conversation agent if elspeth_local isn't installed. Leave conversation_agent_id blank to use Elspeth with full per-caller identity -- selecting an agent here routes through HA's generic, identity-less conversation API instead, so only set it if you specifically want a different agent. Optionally also answers a second number as a Claude voice line (set anthropic_api_key) that can hand requests to a Claude project.",
   "arch": [
@@ -39,7 +39,9 @@
     "claude_project_fire_url": "",
     "claude_project_fire_token": "",
     "claude_project_status_secret": "",
-    "claude_require_pin": true
+    "claude_require_pin": true,
+    "claude_projects": [],
+    "claude_default_project": ""
   },
   "schema": {
     "twilio_account_sid": "str",
@@ -65,7 +67,15 @@
     "claude_project_fire_url": "str?",
     "claude_project_fire_token": "password?",
     "claude_project_status_secret": "password?",
-    "claude_require_pin": "bool?"
+    "claude_require_pin": "bool?",
+    "claude_projects": [
+      {
+        "name": "str",
+        "fire_url": "str",
+        "fire_token": "password"
+      }
+    ],
+    "claude_default_project": "str?"
   },
   "homeassistant_api": true,
   "hassio_api": true,

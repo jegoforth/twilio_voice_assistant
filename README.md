@@ -338,9 +338,11 @@ On the call, Claude can search the web, hang up when you're done, and, if a Clau
 | `claude_voice` | A Conversation Relay ElevenLabs voice for Claude. Blank uses `conversation_relay_voice`. |
 | `claude_require_pin` | On by default. After caller ID matches, the caller says or keys their HA Extended User Management PIN before Claude picks up, since caller ID alone can be spoofed. Checked in Home Assistant with `verify_pin` (and its lockout); the PIN never reaches Claude. Redialing after a dropped call within 20 minutes skips it. |
 | `claude_allowed_user_ids` | Comma-separated HA user ids allowed on this line. Blank lets any recognized household member through. Unrecognized numbers are always refused. |
-| `claude_project_fire_url`, `claude_project_fire_token` | The Fire URL and token of a Claude Code scheduled task with an API trigger. Set both to let Claude send requests to your project. |
+| `claude_projects` | The Claude projects Claude can send requests to: one entry per project, each with the `name` you'll say on the call and the `fire_url` and `fire_token` of that project's scheduled task (below). |
+| `claude_default_project` | The project used when you don't name one. With only one project, that one is the default. |
+| `claude_project_fire_url`, `claude_project_fire_token` | Older single-project form; still works, as a project named by `claude_default_project` (or "main"). |
 | `claude_project_status_secret` | A long random string. When set, `POST /claude/project_status` with `Authorization: Bearer <secret>` and `{"summary": "..."}` stores the status Claude reads back. |
 
 ### Connecting a Claude project
 
-Create a Claude Code scheduled task with no schedule whose prompt tells it to treat the text in its `routine-fire-payload` block as a request spoken on this line, and point it at your project. On the web at claude.ai/code/routines, open the task, add an **API** trigger, copy the Fire URL, click **Generate token**, and paste both into the options above. The token is shown once. Each request Claude sends arrives as one run of that task.
+For each project, ask that project to create a Claude Code scheduled task with no schedule, whose prompt tells it to wait for the `routine-fire-payload` block (it arrives as a separate message just after the prompt) and treat the text in it as a request spoken on this line. Create it from inside the project, so its runs land there. On the web at claude.ai/code/routines, open the task, add an **API** trigger, copy the Fire URL, click **Generate token**, and add them as an entry in `claude_projects` along with the project's spoken name. The token is shown once. Each request Claude sends arrives as one run of that project's task.

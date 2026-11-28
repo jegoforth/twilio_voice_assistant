@@ -70,8 +70,10 @@ for key, default in [
     ('claude_project_fire_url', ''),
     ('claude_project_fire_token', ''),
     ('claude_project_status_secret', ''),
+    ('claude_default_project', ''),
 ]:
     os.environ[key.upper()] = str(config.get(key, default) or default).strip()
+os.environ['CLAUDE_PROJECTS'] = json.dumps(config.get('claude_projects') or [])
 os.environ['CLAUDE_FAST_MODE'] = str(config.get('claude_fast_mode', False)).lower()
 os.environ['CLAUDE_REQUIRE_PIN'] = str(config.get('claude_require_pin', True)).lower()
 os.environ['CLAUDE_WEB_SEARCH'] = str(config.get('claude_web_search', True)).lower()

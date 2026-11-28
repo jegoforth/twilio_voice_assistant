@@ -3,3 +3,4 @@ uvicorn
 python-multipart
 websockets
 httpx
+anthropic>=2.14,<3

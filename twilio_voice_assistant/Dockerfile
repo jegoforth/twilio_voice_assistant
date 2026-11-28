@@ -24,6 +24,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY run.sh /run.sh
 RUN chmod a+x /run.sh
 
-COPY main.py .
+COPY main.py claude_line.py ./
 
 CMD ["/run.sh"]

@@ -42,7 +42,10 @@ from html import escape
 
 import anthropic
 import httpx
+from urllib.parse import quote
+
 from fastapi import APIRouter, Form, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi.responses import Response
 
 import main as core
 
@@ -80,6 +83,17 @@ ROUTINE_BETA = "experimental-cc-routine-2026-04-01"
 FALLBACK_BETA = "server-side-fallback-2026-07-01"
 
 LINE_TOKEN_TTL_SECONDS = 120
+# Caller ID can be spoofed, so by default the caller also says (or keys)
+# their HA Extended User Management PIN before Claude picks up. This is done
+# by Twilio <Gather> and checked in Home Assistant: the PIN never reaches
+# Claude. A dropped call redialed within the resume window skips it.
+CLAUDE_REQUIRE_PIN = os.getenv("CLAUDE_REQUIRE_PIN", "true").strip().lower() != "false"
+PIN_ATTEMPTS = 3
+SPOKEN_DIGITS = {
+    "zero": "0", "oh": "0", "o": "0", "one": "1", "won": "1", "two": "2", "to": "2",
+    "too": "2", "three": "3", "four": "4", "for": "4", "five": "5", "six": "6",
+    "seven": "7", "eight": "8", "ate": "8", "nine": "9",
+}
 
 # Said without asking Claude, so hanging up never waits on the API. Kept to
 # phrases that can't be an answer to a question Claude asked ("no thanks"
@@ -107,8 +121,22 @@ def _line_key() -> bytes:
     ).digest()
 
 
-def create_line_token(user_id: str, user_name: str, call_sid: str | None) -> str:
-    payload = {"user_id": user_id, "user_name": user_name, "created": int(time.time())}
+def create_line_token(
+    user_id: str,
+    user_name: str,
+    call_sid: str | None,
+    stage: str = "relay",
+    **extra,
+) -> str:
+    """stage "relay" opens /claude/relay; stage "pin" only carries a caller
+    from the PIN prompt to /claude/check_pin. Neither works as the other."""
+    payload = {
+        "user_id": user_id,
+        "user_name": user_name,
+        "created": int(time.time()),
+        "stage": stage,
+        **extra,
+    }
     if call_sid:
         payload["call_sid"] = call_sid
     body = core.base64url_encode(
@@ -118,7 +146,7 @@ def create_line_token(user_id: str, user_name: str, call_sid: str | None) -> str
     return f"{body}.{core.base64url_encode(sig)}"
 
 
-def validate_line_token(token: str | None) -> dict | None:
+def validate_line_token(token: str | None, stage: str = "relay") -> dict | None:
     if not token or "." not in token:
         return None
     body, sig = token.split(".", 1)
@@ -133,6 +161,8 @@ def validate_line_token(token: str | None) -> dict | None:
     if not isinstance(created, int) or time.time() - created > LINE_TOKEN_TTL_SECONDS:
         return None
     if not payload.get("user_id") or not payload.get("user_name"):
+        return None
+    if payload.get("stage") != stage:
         return None
     return payload
 
@@ -149,6 +179,9 @@ class Conversation:
 
 
 _conversations: dict[str, Conversation] = {}
+# When each caller last passed the PIN check, so a redial after a dropped
+# call doesn't ask again. Cleared when a call ends with a goodbye.
+_pin_verified_at: dict[str, float] = {}
 
 
 def conversation_for(user_id: str) -> tuple[Conversation, bool]:
@@ -421,38 +454,81 @@ async def end_call(websocket: WebSocket, reason: str):
     }))
 
 
-@router.post("/claude/incoming_call")
-async def claude_incoming_call(
-    request: Request,
-    From: str = Form(None),
-    CallSid: str = Form(None),
-):
-    await core.validate_twilio_http_request(request, route="/claude/incoming_call", call_sid=CallSid)
-    if not CLAUDE_LINE_ENABLED:
-        return core.polite_hangup("This line isn't set up yet. Goodbye.")
+async def lookup_caller(from_number: str | None):
+    """Return (person_entity_id, ha_user_id, display_name, normalized_from)
+    for a caller, via HA Extended User Management's find_person_by_phone."""
+    normalized_from = core.normalize_phone_number(from_number)
+    if not normalized_from:
+        return None, None, None, normalized_from
+    result, error = await core.ha_websocket_request({
+        "type": "call_service",
+        "domain": "extended_user_management",
+        "service": "find_person_by_phone",
+        "service_data": {"phone_number": normalized_from},
+        "return_response": True,
+    })
+    if error:
+        print(f"WARNING: find_person_by_phone lookup failed: {error}")
+        return None, None, None, normalized_from
+    person_entity_id = ((result or {}).get("response") or {}).get("person_entity_id")
+    if not person_entity_id:
+        return None, None, None, normalized_from
+    ha_user_id, display_name = await core.resolve_person_ha_user(person_entity_id)
+    return person_entity_id, ha_user_id, display_name, normalized_from
 
-    ha_user_id, display_name, normalized_from = await core.find_person_by_phone(From)
-    masked_from = core.mask_phone_number(normalized_from or From)
-    allowed = bool(ha_user_id) and (
-        not CLAUDE_ALLOWED_USER_IDS or ha_user_id in CLAUDE_ALLOWED_USER_IDS
-    )
-    core.log_timing(
-        "claude_line_call_received",
-        call_sid=CallSid,
-        caller=masked_from,
-        allowed=allowed,
-    )
-    if not allowed:
-        return core.polite_hangup("Sorry, this line only takes calls from known numbers. Goodbye.")
 
-    user_name = display_name or "there"
+async def verify_pin(person_entity_id: str, pin: str) -> tuple[bool, bool]:
+    """Check a PIN in Home Assistant. Returns (verified, locked_out)."""
+    result, error = await core.ha_websocket_request({
+        "type": "call_service",
+        "domain": "extended_user_management",
+        "service": "verify_pin",
+        "service_data": {"person_entity_id": person_entity_id, "pin": pin},
+        "return_response": True,
+    })
+    if error:
+        print(f"WARNING: verify_pin failed: {error}")
+        return False, False
+    response = (result or {}).get("response") or {}
+    return bool(response.get("verified")), bool(response.get("locked_out"))
+
+
+def pin_from_speech(speech: str | None, digits: str | None) -> str:
+    """Turn keyed digits or a spoken PIN ("one two three four", "1234",
+    "twelve thirty four" is not supported) into a digit string."""
+    if digits and digits.strip("#*").isdigit():
+        return digits.strip("#*")
+    out = []
+    for word in core.normalize_command(speech or "").replace("-", " ").split():
+        if word.isdigit():
+            out.append(word)
+        elif word in SPOKEN_DIGITS:
+            out.append(SPOKEN_DIGITS[word])
+    return "".join(out)
+
+
+def pin_prompt_twiml(token: str, prompt: str) -> Response:
+    action = f"/claude/check_pin?t={quote(token)}"
+    return core.twiml_response(f"""
+    <Response>
+        <Gather input="speech dtmf" action="{escape(action, quote=True)}" method="POST"
+                timeout="6" speechTimeout="auto" finishOnKey="#" hints="zero, one, two, three, four, five, six, seven, eight, nine">
+            <Say>{escape(prompt)}</Say>
+        </Gather>
+        <Say>I didn't catch that. Goodbye.</Say>
+        <Hangup/>
+    </Response>
+    """)
+
+
+def connect_twiml(ha_user_id: str, user_name: str, call_sid: str | None) -> Response:
     convo, resumed = conversation_for(ha_user_id)
     greeting = (
         f"Hey {user_name}, we got cut off. Picking up where we left off."
         if resumed
         else f"Hey {user_name}, it's Claude. What's up?"
     )
-    token = create_line_token(ha_user_id, user_name, CallSid)
+    token = create_line_token(ha_user_id, user_name, call_sid)
     # CLAUDE_VOICE, when set, gives this line its own voice so Claude
     # doesn't sound like Elspeth.
     attrs = core.relay_attributes(
@@ -467,6 +543,93 @@ async def claude_incoming_call(
         </Connect>
     </Response>
     """)
+
+
+def recently_verified(ha_user_id: str) -> bool:
+    return time.time() - _pin_verified_at.get(ha_user_id, 0) < CLAUDE_RESUME_MINUTES * 60
+
+
+def mark_call_ended(ha_user_id: str):
+    convo = _conversations.get(ha_user_id)
+    if convo:
+        convo.ended = True
+    _pin_verified_at.pop(ha_user_id, None)
+
+
+@router.post("/claude/incoming_call")
+async def claude_incoming_call(
+    request: Request,
+    From: str = Form(None),
+    CallSid: str = Form(None),
+):
+    await core.validate_twilio_http_request(request, route="/claude/incoming_call", call_sid=CallSid)
+    if not CLAUDE_LINE_ENABLED:
+        return core.polite_hangup("This line isn't set up yet. Goodbye.")
+
+    person_entity_id, ha_user_id, display_name, normalized_from = await lookup_caller(From)
+    masked_from = core.mask_phone_number(normalized_from or From)
+    allowed = bool(ha_user_id) and (
+        not CLAUDE_ALLOWED_USER_IDS or ha_user_id in CLAUDE_ALLOWED_USER_IDS
+    )
+    core.log_timing(
+        "claude_line_call_received",
+        call_sid=CallSid,
+        caller=masked_from,
+        allowed=allowed,
+    )
+    if not allowed:
+        return core.polite_hangup("Sorry, this line only takes calls from known numbers. Goodbye.")
+
+    user_name = display_name or "there"
+    if CLAUDE_REQUIRE_PIN and not recently_verified(ha_user_id):
+        token = create_line_token(
+            ha_user_id, user_name, CallSid, stage="pin",
+            person_entity_id=person_entity_id, attempt=1,
+        )
+        return pin_prompt_twiml(token, f"Hi {user_name}. What's your PIN?")
+    return connect_twiml(ha_user_id, user_name, CallSid)
+
+
+@router.post("/claude/check_pin")
+async def claude_check_pin(
+    request: Request,
+    t: str | None = None,
+    SpeechResult: str = Form(None),
+    Digits: str = Form(None),
+    CallSid: str = Form(None),
+):
+    await core.validate_twilio_http_request(request, route="/claude/check_pin", call_sid=CallSid)
+    payload = validate_line_token(t, stage="pin")
+    if not payload or not payload.get("person_entity_id"):
+        return core.polite_hangup("Sorry, that took too long. Please call again.")
+    if payload.get("call_sid") and CallSid and payload["call_sid"] != CallSid:
+        return core.polite_hangup("Goodbye.")
+
+    ha_user_id = payload["user_id"]
+    user_name = payload["user_name"]
+    attempt = int(payload.get("attempt") or 1)
+    pin = pin_from_speech(SpeechResult, Digits)
+    verified, locked_out = (False, False)
+    if pin:
+        verified, locked_out = await verify_pin(payload["person_entity_id"], pin)
+    core.log_timing(
+        "claude_line_pin_check",
+        call_sid=CallSid,
+        attempt=attempt,
+        verified=verified,
+        locked_out=locked_out,
+        heard_digits=len(pin),
+    )
+    if verified:
+        _pin_verified_at[ha_user_id] = time.time()
+        return connect_twiml(ha_user_id, user_name, CallSid)
+    if locked_out or attempt >= PIN_ATTEMPTS:
+        return core.polite_hangup("Sorry, I couldn't verify that. Goodbye.")
+    token = create_line_token(
+        ha_user_id, user_name, payload.get("call_sid"), stage="pin",
+        person_entity_id=payload["person_entity_id"], attempt=attempt + 1,
+    )
+    return pin_prompt_twiml(token, "That didn't match. Try once more, or key it in.")
 
 
 @router.websocket("/claude/relay")
@@ -486,7 +649,7 @@ async def claude_relay(websocket: WebSocket):
         try:
             hang_up = await claude_turn(convo, speaker, user_name)
             if hang_up:
-                convo.ended = True
+                mark_call_ended(user_id)
                 await end_call(websocket, "claude_ended_call")
         except asyncio.CancelledError:
             raise
@@ -524,7 +687,8 @@ async def claude_relay(websocket: WebSocket):
                 user_id = payload["user_id"]
                 user_name = payload["user_name"]
                 call_sid = payload.get("call_sid")
-                convo, _ = conversation_for(user_id)
+                # connect_twiml already chose to resume or start fresh.
+                convo = _conversations.get(user_id) or conversation_for(user_id)[0]
                 continue
 
             if convo is None:
@@ -550,7 +714,7 @@ async def claude_relay(websocket: WebSocket):
             )
 
             if is_hangup_phrase(transcript):
-                convo.ended = True
+                mark_call_ended(user_id)
                 await speaker.say("Talk soon. Bye.", last=True)
                 await end_call(websocket, "caller_ended_call")
                 continue

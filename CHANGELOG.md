@@ -16,7 +16,9 @@
   route, search the web, and hang up.
 - Off unless `anthropic_api_key` is set. Only callers HA Extended User
   Management recognizes get through, optionally narrowed to
-  `claude_allowed_user_ids`. The line's session tokens use their own key, so
+  `claude_allowed_user_ids`, and by default they then say or key their PIN
+  (`claude_require_pin`, new `/claude/check_pin` route, checked with
+  `verify_pin`) before Claude picks up. The PIN never reaches Claude. The line's session tokens use their own key, so
   they can't open an Elspeth session or the other way around.
 - `relay_attributes()` takes an optional voice, so the Claude line can use
   its own `claude_voice`.

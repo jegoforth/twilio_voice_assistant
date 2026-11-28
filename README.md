@@ -318,14 +318,14 @@ A speaker with its own SIP phone (an Echo Dot running TECHO5 firmware) can place
 
 ## The Claude line (optional)
 
-A second Twilio number can connect you straight to Claude instead of Elspeth, for hands-free conversations while driving. Twilio and ElevenLabs handle the voice exactly as they do for Elspeth; the App streams Claude's reply into Conversation Relay as it is written, so the first words play almost at once, and talking over Claude cuts it off. If the call drops without a goodbye, calling back within 20 minutes resumes the conversation.
+A second Twilio number can connect you straight to Claude instead of Elspeth, for hands-free conversations while driving. Twilio and ElevenLabs handle the voice exactly as they do for Elspeth; the App streams Claude's reply into Conversation Relay as it is written, so the first words play almost at once, and talking over Claude cuts it off. Calls start with a quick spoken PIN, then Claude picks up. If the call drops without a goodbye, calling back within 20 minutes resumes the conversation without asking for the PIN again.
 
 On the call, Claude can search the web, hang up when you're done, and, if a Claude project is wired up, send a request to it (after reading it back and hearing a yes) and read back the project's latest status.
 
 ### Setup
 
 1. Buy a second number in Twilio. Under **Voice Configuration**, set **A call comes in** to Webhook, `https://YOUR_PUBLIC_DOMAIN/claude/incoming_call`, HTTP POST.
-2. Expose `/claude/incoming_call`, `/claude/relay` (websocket) and, if you use status readback, `/claude/project_status` through your proxy, the same way as the Elspeth routes.
+2. Expose `/claude/incoming_call`, `/claude/check_pin`, `/claude/relay` (websocket) and, if you use status readback, `/claude/project_status` through your proxy, the same way as the Elspeth routes.
 3. Set these App options:
 
 | Option | What it does |
@@ -336,6 +336,7 @@ On the call, Claude can search the web, hang up when you're done, and, if a Clau
 | `claude_fast_mode` | Opus 5.5 fast mode: faster output at twice the price. Off by default. |
 | `claude_web_search` | On by default. |
 | `claude_voice` | A Conversation Relay ElevenLabs voice for Claude. Blank uses `conversation_relay_voice`. |
+| `claude_require_pin` | On by default. After caller ID matches, the caller says or keys their HA Extended User Management PIN before Claude picks up, since caller ID alone can be spoofed. Checked in Home Assistant with `verify_pin` (and its lockout); the PIN never reaches Claude. Redialing after a dropped call within 20 minutes skips it. |
 | `claude_allowed_user_ids` | Comma-separated HA user ids allowed on this line. Blank lets any recognized household member through. Unrecognized numbers are always refused. |
 | `claude_project_fire_url`, `claude_project_fire_token` | The Fire URL and token of a Claude Code scheduled task with an API trigger. Set both to let Claude send requests to your project. |
 | `claude_project_status_secret` | A long random string. When set, `POST /claude/project_status` with `Authorization: Bearer <secret>` and `{"summary": "..."}` stores the status Claude reads back. |

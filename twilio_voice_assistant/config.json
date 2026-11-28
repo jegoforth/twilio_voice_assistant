@@ -38,7 +38,8 @@
     "claude_allowed_user_ids": "",
     "claude_project_fire_url": "",
     "claude_project_fire_token": "",
-    "claude_project_status_secret": ""
+    "claude_project_status_secret": "",
+    "claude_require_pin": true
   },
   "schema": {
     "twilio_account_sid": "str",
@@ -63,7 +64,8 @@
     "claude_allowed_user_ids": "str?",
     "claude_project_fire_url": "str?",
     "claude_project_fire_token": "password?",
-    "claude_project_status_secret": "password?"
+    "claude_project_status_secret": "password?",
+    "claude_require_pin": "bool?"
   },
   "homeassistant_api": true,
   "hassio_api": true,

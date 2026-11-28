@@ -73,6 +73,7 @@ for key, default in [
 ]:
     os.environ[key.upper()] = str(config.get(key, default) or default).strip()
 os.environ['CLAUDE_FAST_MODE'] = str(config.get('claude_fast_mode', False)).lower()
+os.environ['CLAUDE_REQUIRE_PIN'] = str(config.get('claude_require_pin', True)).lower()
 os.environ['CLAUDE_WEB_SEARCH'] = str(config.get('claude_web_search', True)).lower()
 
 os.environ['OUTBOUND_CALLER_ID'] = str(config.get('outbound_caller_id', '') or '').strip()

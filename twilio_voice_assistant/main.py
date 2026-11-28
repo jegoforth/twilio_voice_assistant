@@ -776,9 +776,14 @@ def redirect_to_start_session(
     """)
 
 
-def relay_attributes(websocket_url: str, welcome_greeting: str) -> str:
+def relay_attributes(
+    websocket_url: str,
+    welcome_greeting: str,
+    voice: str | None = None,
+) -> str:
     """ConversationRelay's attributes, shared by calls Elspeth answers and
-    calls she places, so both sound and listen the same way."""
+    calls she places, so both sound and listen the same way. The Claude line
+    passes its own voice; everything else uses CONVERSATION_RELAY_VOICE."""
     attrs = {
         "url": websocket_url,
         "welcomeGreeting": welcome_greeting,
@@ -798,8 +803,8 @@ def relay_attributes(websocket_url: str, welcome_greeting: str) -> str:
         "interruptible": "speech",
         "interruptSensitivity": "low",
     }
-    if CONVERSATION_RELAY_VOICE:
-        attrs["voice"] = CONVERSATION_RELAY_VOICE
+    if voice or CONVERSATION_RELAY_VOICE:
+        attrs["voice"] = voice or CONVERSATION_RELAY_VOICE
 
     attr_text = " ".join(
         f'{name}="{escape(value, quote=True)}"'
@@ -1747,3 +1752,12 @@ async def sip_outbound(
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
+
+
+# --- The Claude line ---------------------------------------------------------
+#
+# A second number that connects straight to Claude. Imported last, because
+# claude_line uses the helpers above. Off unless anthropic_api_key is set.
+from claude_line import router as claude_line_router  # noqa: E402
+
+app.include_router(claude_line_router)

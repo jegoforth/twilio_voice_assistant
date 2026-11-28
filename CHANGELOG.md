@@ -1,5 +1,26 @@
 # Changelog
 
+## 1.14.0
+
+- The Claude line: an optional second Twilio number that connects a
+  household member straight to Claude (Anthropic API) instead of Elspeth,
+  built for talking while driving. New `/claude/incoming_call` and
+  `/claude/relay` routes. Replies stream to Conversation Relay token by
+  token, and talking over Claude cancels the reply in flight. A call that
+  drops without a goodbye and is redialed within 20 minutes picks up where
+  it left off.
+- Claude on the line can hand a confirmed request to a Claude project by
+  firing a Claude Code scheduled task's API trigger
+  (`claude_project_fire_url` / `claude_project_fire_token`), read back the
+  latest status the project posted to the new `/claude/project_status`
+  route, search the web, and hang up.
+- Off unless `anthropic_api_key` is set. Only callers HA Extended User
+  Management recognizes get through, optionally narrowed to
+  `claude_allowed_user_ids`. The line's session tokens use their own key, so
+  they can't open an Elspeth session or the other way around.
+- `relay_attributes()` takes an optional voice, so the Claude line can use
+  its own `claude_voice`.
+
 ## 1.13.0
 
 - Calls Elspeth places herself: new `/errand/answer`, `/errand/status` and

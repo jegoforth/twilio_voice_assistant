@@ -1,9 +1,12 @@
 {
   "name": "Twilio Voice Assistant",
-  "version": "1.13.0",
+  "version": "1.14.0",
   "slug": "twilio_voice_assistant",
-  "description": "Twilio Conversation Relay app with caller identity via HA Extended User Management, spoken self-declaration and PIN verification for unrecognized callers (the same identity ladder as every other Elspeth voice channel), ElevenLabs voice support, and an optional conversation_agent_id for routing calls to a different HA conversation agent if elspeth_local isn't installed. Leave conversation_agent_id blank to use Elspeth with full per-caller identity -- selecting an agent here routes through HA's generic, identity-less conversation API instead, so only set it if you specifically want a different agent.",
-  "arch": ["amd64", "aarch64"],
+  "description": "Twilio Conversation Relay app with caller identity via HA Extended User Management, spoken self-declaration and PIN verification for unrecognized callers (the same identity ladder as every other Elspeth voice channel), ElevenLabs voice support, and an optional conversation_agent_id for routing calls to a different HA conversation agent if elspeth_local isn't installed. Leave conversation_agent_id blank to use Elspeth with full per-caller identity -- selecting an agent here routes through HA's generic, identity-less conversation API instead, so only set it if you specifically want a different agent. Optionally also answers a second number as a Claude voice line (set anthropic_api_key) that can hand requests to a Claude project.",
+  "arch": [
+    "amd64",
+    "aarch64"
+  ],
   "startup": "services",
   "boot": "auto",
   "ports": {
@@ -25,7 +28,17 @@
     "allow_unsigned_twilio_requests_for_dev": false,
     "debug": false,
     "log_call_transcripts": false,
-    "outbound_caller_id": ""
+    "outbound_caller_id": "",
+    "anthropic_api_key": "",
+    "claude_model": "claude-opus-5-5",
+    "claude_effort": "low",
+    "claude_fast_mode": false,
+    "claude_web_search": true,
+    "claude_voice": "",
+    "claude_allowed_user_ids": "",
+    "claude_project_fire_url": "",
+    "claude_project_fire_token": "",
+    "claude_project_status_secret": ""
   },
   "schema": {
     "twilio_account_sid": "str",
@@ -40,7 +53,17 @@
     "allow_unsigned_twilio_requests_for_dev": "bool?",
     "debug": "bool?",
     "log_call_transcripts": "bool?",
-    "outbound_caller_id": "str?"
+    "outbound_caller_id": "str?",
+    "anthropic_api_key": "password?",
+    "claude_model": "str?",
+    "claude_effort": "list(low|medium|high)?",
+    "claude_fast_mode": "bool?",
+    "claude_web_search": "bool?",
+    "claude_voice": "str?",
+    "claude_allowed_user_ids": "str?",
+    "claude_project_fire_url": "str?",
+    "claude_project_fire_token": "password?",
+    "claude_project_status_secret": "password?"
   },
   "homeassistant_api": true,
   "hassio_api": true,

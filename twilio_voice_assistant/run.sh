@@ -60,6 +60,21 @@ os.environ['LOG_CALL_TRANSCRIPTS'] = str(
     config.get('log_call_transcripts', False)
 ).lower()
 
+# The Claude line (second number). Off unless anthropic_api_key is set.
+for key, default in [
+    ('anthropic_api_key', ''),
+    ('claude_model', 'claude-opus-5-5'),
+    ('claude_effort', 'low'),
+    ('claude_voice', ''),
+    ('claude_allowed_user_ids', ''),
+    ('claude_project_fire_url', ''),
+    ('claude_project_fire_token', ''),
+    ('claude_project_status_secret', ''),
+]:
+    os.environ[key.upper()] = str(config.get(key, default) or default).strip()
+os.environ['CLAUDE_FAST_MODE'] = str(config.get('claude_fast_mode', False)).lower()
+os.environ['CLAUDE_WEB_SEARCH'] = str(config.get('claude_web_search', True)).lower()
+
 os.environ['OUTBOUND_CALLER_ID'] = str(config.get('outbound_caller_id', '') or '').strip()
 
 port = config.get('port', 8000)

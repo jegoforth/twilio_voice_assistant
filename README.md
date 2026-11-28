@@ -314,3 +314,32 @@ A speaker with its own SIP phone (an Echo Dot running TECHO5 firmware) can place
 4. Sign the speaker in from Home Assistant with its `phone_account` action: the server is the SIP domain (`<name>.sip.twilio.com`), with that username and password.
 
 `/sip/outbound` only connects calls to numbers registered to someone in Home Assistant Extended User Management, the same records caller ID uses, and shows the assistant's number as caller ID. Anything else is told it can only call the household.
+
+
+## The Claude line (optional)
+
+A second Twilio number can connect you straight to Claude instead of Elspeth, for hands-free conversations while driving. Twilio and ElevenLabs handle the voice exactly as they do for Elspeth; the App streams Claude's reply into Conversation Relay as it is written, so the first words play almost at once, and talking over Claude cuts it off. If the call drops without a goodbye, calling back within 20 minutes resumes the conversation.
+
+On the call, Claude can search the web, hang up when you're done, and, if a Claude project is wired up, send a request to it (after reading it back and hearing a yes) and read back the project's latest status.
+
+### Setup
+
+1. Buy a second number in Twilio. Under **Voice Configuration**, set **A call comes in** to Webhook, `https://YOUR_PUBLIC_DOMAIN/claude/incoming_call`, HTTP POST.
+2. Expose `/claude/incoming_call`, `/claude/relay` (websocket) and, if you use status readback, `/claude/project_status` through your proxy, the same way as the Elspeth routes.
+3. Set these App options:
+
+| Option | What it does |
+| --- | --- |
+| `anthropic_api_key` | Turns the line on. A Claude API key from platform.claude.com. |
+| `claude_model` | Default `claude-opus-5-5`. `claude-haiku-5-5` answers faster and costs far less, if you'd rather trade depth for speed. |
+| `claude_effort` | `low` (default), `medium` or `high`. Low keeps replies quick. |
+| `claude_fast_mode` | Opus 5.5 fast mode: faster output at twice the price. Off by default. |
+| `claude_web_search` | On by default. |
+| `claude_voice` | A Conversation Relay ElevenLabs voice for Claude. Blank uses `conversation_relay_voice`. |
+| `claude_allowed_user_ids` | Comma-separated HA user ids allowed on this line. Blank lets any recognized household member through. Unrecognized numbers are always refused. |
+| `claude_project_fire_url`, `claude_project_fire_token` | The Fire URL and token of a Claude Code scheduled task with an API trigger. Set both to let Claude send requests to your project. |
+| `claude_project_status_secret` | A long random string. When set, `POST /claude/project_status` with `Authorization: Bearer <secret>` and `{"summary": "..."}` stores the status Claude reads back. |
+
+### Connecting a Claude project
+
+Create a Claude Code scheduled task with no schedule whose prompt tells it to treat the text in its `routine-fire-payload` block as a request spoken on this line, and point it at your project. On the web at claude.ai/code/routines, open the task, add an **API** trigger, copy the Fire URL, click **Generate token**, and paste both into the options above. The token is shown once. Each request Claude sends arrives as one run of that task.
